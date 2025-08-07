@@ -10,6 +10,7 @@ from salvar_em_google_sheets import salvar_em_google_sheets
 from atualizar_google_sheets import atualizar_interesse_google_sheets  
 from registrar_historico import registrar_interacao
 from salvar_em_mala_direta import salvar_em_mala_direta
+from responder_ia import responder_com_ia
 
 load_dotenv()
 
@@ -350,5 +351,10 @@ def gerar_resposta(mensagem, numero, nome_cliente=None):
         enviar_mensagem(numero, blocos["4.2"])
         return
 
-    enviar_botoes(numero, "Desculpe, não entendi. Escolha uma das opções abaixo:", botoes_menu)
+    # Se nada foi identificado, a IA responde
+    mensagem_ia = responder_com_ia(id_recebido, nome_final)
+    if mensagem_ia:
+        enviar_mensagem(numero, mensagem_ia)
+    else:
+        enviar_botoes(numero, "Desculpe, não entendi. Escolha uma das opções abaixo:", botoes_menu)
     return
