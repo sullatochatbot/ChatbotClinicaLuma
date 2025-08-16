@@ -1,711 +1,515 @@
-# responder.py — Clínica Luma (Fase 1)
-# ------------------------------------------------------------
-# Objetivo: Fluxo inicial para Clínica (Consulta, Exames, Mais),
-# captação guiada de dados (nome, cpf, data de nascimento, convênio,
-# especialidade, exame, etc.) com máquina de estados simples, botões
-# interativos e logs em CSV + hooks para Google Sheets.
-#
-# Este arquivo foi pensado para ser "drop-in" no seu projeto atual,
-# sem mudar webhook.py. Ele expõe a função `responder(evento)` que pode
-# ser chamada pelo webhook ao receber mensagens. Se seu webhook chama
-# outra função, ajuste no final conforme indicado.
-# ------------------------------------------------------------
+# responder.py — Clínica Luma
+# Atualizado: 2025-08-16
+# Funções:
+# - Envio de templates (HSM) e botões interativos
+# - Boas-vindas com fallback
+# - Mapeamento de botões de template -> fluxo local
+# - Integração Google Sheets: salvar/atualizar nome, especialidade, logar interações (com fuso de Brasília)
+
+from __future__ import annotations
 
 import os
 import re
 import json
-import time
-import csv
-from datetime import datetime
+import typing as t
+from datetime import datetime, timezone, timedelta
 
 import requests
 
-# ------------------------------------------------------------
-# Config .env
-# ------------------------------------------------------------
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID", "")
+# =========================
+# Credenciais e Constantes
+# =========================
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "").strip()
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID", "").strip()
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "sullato_token_verificacao")
-PLANILHA_ID = os.getenv("PLANILHA_ID", "")
-GOOGLE_SHEET_JSON = os.getenv("GOOGLE_SHEET_JSON", "credenciais_sheets.json")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-# ------------------------------------------------------------
-# Constantes e utilitários
-# ------------------------------------------------------------
-WHATSAPP_API_URL = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
-HEADERS = {
-    "Authorization": f"Bearer {ACCESS_TOKEN}",
-    "Content-Type": "application/json"
-}
+PLANILHA_ID = os.getenv("PLANILHA_ID", "").strip()  # ID da planilha Google
+GS_CRED_PATH = os.getenv("GOOGLE_SHEET_JSON", "credenciais_sheets.json").strip()
 
-CSV_PRIMEIRO = "PrimeiroAtendimento.csv"  # Upsert por número
-CSV_HISTORICO = "Historico.csv"          # Append por evento
+GRAPH_BASE = "https://graph.facebook.com/v20.0"
+WHATSAPP_API_URL = f"{GRAPH_BASE}/{PHONE_NUMBER_ID}/messages" if PHONE_NUMBER_ID else ""
+HEADERS = {"Authorization": f"Bearer {ACCESS_TOKEN}" if ACCESS_TOKEN else "", "Content-Type": "application/json"}
 
-MENU_INICIAL_BTNS = [
-    {"id": "cons", "title": "Consulta"},
-    {"id": "exam", "title": "Exames"},
-    {"id": "mais", "title": "Mais opções"},
-]
+# =========================
+# Timezone Brasil (sem DST)
+# =========================
+TZ_BR = timezone(timedelta(hours=-3))  # Brasília
 
-CONVENIO_BTNS = [
-    {"id": "cons_conv", "title": "Convênio"},
-    {"id": "cons_part", "title": "Particular"},
-]
+def _tz_now_str() -> str:
+    # Ex.: 2025-08-15 22:41:05 -03:00
+    return datetime.now(TZ_BR).strftime("%Y-%m-%d %H:%M:%S -03:00")
 
-PREFERENCIA_BTNS = [
-    {"id": "pref_manha", "title": "Manhã"},
-    {"id": "pref_tarde", "title": "Tarde"},
-    {"id": "pref_qualq", "title": "Qualquer"},
-]
+# =========================
+# Google Sheets (opcional)
+# =========================
+_gs_client = None
+_gs_pagina1 = None
+_gs_historico = None
 
-ESPECIALIDADES_BTNS_P1 = [
-    {"id": "esp_clinico", "title": "Clínico Geral"},
-    {"id": "esp_pediatria", "title": "Pediatria"},
-    {"id": "esp_gineco", "title": "Ginecologia"},
-]
-ESPECIALIDADES_BTNS_P2 = [
-    {"id": "esp_cardio", "title": "Cardiologia"},
-    {"id": "esp_orto", "title": "Ortopedia"},
-    {"id": "esp_outro", "title": "Outra"},
-]
+def _gs_ensure_headers(ws, headers: list[str]):
+    """Garante que a primeira linha da aba tenha estes headers (na ordem)."""
+    try:
+        row1 = ws.row_values(1)
+    except Exception:
+        row1 = []
+    if row1 != headers:
+        ws.resize(rows=max(getattr(ws, "row_count", 1000), 1000), cols=len(headers))
+        ws.update(f"A1:{chr(64+len(headers))}1", [headers])
 
-EXAMES_BTNS_P1 = [
-    {"id": "ex_hemo", "title": "Hemograma"},
-    {"id": "ex_raiox", "title": "Raio-X"},
-    {"id": "ex_ultra", "title": "Ultrassom"},
-]
-EXAMES_BTNS_P2 = [
-    {"id": "ex_eletro", "title": "Eletro"},
-    {"id": "ex_urina", "title": "Urina"},
-    {"id": "ex_outro", "title": "Outro"},
-]
+def _gs_try_init():
+    """Inicializa cliente e abas. Se faltar credencial, apenas loga e segue."""
+    global _gs_client, _gs_pagina1, _gs_historico
+    if _gs_client is not None:
+        return
 
-SIM_NAO_BTNS = [
-    {"id": "sim", "title": "Sim"},
-    {"id": "nao", "title": "Não"},
-]
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
 
-# Máquina de estados em memória
-ESTADOS = {}
-# Estrutura por número: {
-#   "etapa": str,
-#   "dados": {"nome":..., "cpf":..., "nascimento":..., ...},
-#   "tipo": "Consulta"|"Exame"|None,
-#   "modalidade": "Convênio"|"Particular"|None
-# }
+        if not PLANILHA_ID or not os.path.exists(GS_CRED_PATH):
+            print("[GS] Planilha ou credenciais ausentes. Logs não serão gravados.")
+            _gs_client = False
+            return
 
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds = Credentials.from_service_account_file(GS_CRED_PATH, scopes=scopes)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(PLANILHA_ID)
 
-def agora_iso():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Abas: Pagina1 (cadastro) e Historico (tudo)
+        try:
+            ws1 = sh.worksheet("Pagina1")
+        except Exception:
+            ws1 = sh.add_worksheet(title="Pagina1", rows=1000, cols=10)
+        _gs_ensure_headers(ws1, ["Numero", "Nome", "UltimoInteresse", "AtualizadoEm", "Especialidade"])
 
+        try:
+            wsh = sh.worksheet("Historico")
+        except Exception:
+            wsh = sh.add_worksheet(title="Historico", rows=2000, cols=12)
+        _gs_ensure_headers(wsh, ["DataHora", "Numero", "Nome", "Evento", "Detalhe", "Origem", "Especialidade"])
 
-# ------------------------------------------------------------
-# Validações
-# ------------------------------------------------------------
-CPF_DIGITS = re.compile(r"\D+")
-DATA_REGEX = re.compile(r"^(0?[1-9]|[12][0-9]|3[01])/(0?[1-9]|1[012])/(\d{4})$")
+        _gs_client = gc
+        _gs_pagina1 = ws1
+        _gs_historico = wsh
+        print("[GS] Conectado e abas prontas.")
+    except Exception as e:
+        print("[GS] Falha ao iniciar:", e)
+        _gs_client = False
 
+def _gs_upsert_contato(
+    numero: str,
+    nome: str | None = None,
+    interesse: str | None = None,
+    especialidade: str | None = None
+):
+    """Cria/atualiza contato em Pagina1 pelo número (coluna 5 = Especialidade)."""
+    _gs_try_init()
+    if not _gs_client:
+        return
+    try:
+        ws = _gs_pagina1
+        cells = ws.col_values(1)  # Numero
+        numero = numero.strip()
+        idx = None
+        for i, val in enumerate(cells, start=1):
+            if i == 1:  # header
+                continue
+            if (val or "").strip() == numero:
+                idx = i
+                break
 
-def normalizar_cpf(cpf: str) -> str:
-    return CPF_DIGITS.sub("", cpf or "")
+        agora = _tz_now_str()
+        if idx:
+            if nome is not None and nome != "":
+                ws.update_cell(idx, 2, nome)
+            if interesse:
+                ws.update_cell(idx, 3, interesse)
+            ws.update_cell(idx, 4, agora)
+            if especialidade:
+                ws.update_cell(idx, 5, especialidade)
+        else:
+            ws.append_row(
+                [numero, nome or "", interesse or "", agora, especialidade or ""],
+                value_input_option="USER_ENTERED"
+            )
+    except Exception as e:
+        print("[GS] upsert erro:", e)
 
+def _gs_log(
+    numero: str,
+    nome: str | None,
+    evento: str,
+    detalhe: str = "",
+    origem: str = "chatbot",
+    especialidade: str | None = None
+):
+    """Registra interação na aba Historico."""
+    _gs_try_init()
+    if not _gs_client:
+        return
+    try:
+        _gs_historico.append_row(
+            [_tz_now_str(), numero, nome or "", evento, detalhe, origem, especialidade or ""],
+            value_input_option="USER_ENTERED",
+        )
+    except Exception as e:
+        print("[GS] log erro:", e)
 
-def cpf_valido(cpf: str) -> bool:
-    d = normalizar_cpf(cpf)
-    return len(d) == 11  # Fase 1: validação simples
+# =========================
+# Util WhatsApp
+# =========================
+def _tem_credenciais() -> bool:
+    return bool(ACCESS_TOKEN and PHONE_NUMBER_ID)
 
+def _post_wa(payload: dict, timeout: int = 30) -> dict:
+    if not _tem_credenciais():
+        print("[MOCK] Envio WhatsApp:", json.dumps(payload, ensure_ascii=False))
+        return {"mock": True, "payload": payload}
 
-def data_valida(data: str) -> bool:
-    if not data:
-        return False
-    m = DATA_REGEX.match(data.strip())
-    return m is not None
+    resp = requests.post(WHATSAPP_API_URL, headers=HEADERS, json=payload, timeout=timeout)
+    if not (200 <= resp.status_code < 300):
+        print("[WA ERROR]", resp.status_code, resp.text)
+    try:
+        return resp.json()
+    except Exception:
+        return {"status_code": resp.status_code, "text": resp.text}
 
-
-# ------------------------------------------------------------
-# Envio de mensagens WhatsApp
-# ------------------------------------------------------------
-
-def enviar_texto(para: str, texto: str):
-    if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
-        print("[WARN] ACCESS_TOKEN/PHONE_NUMBER_ID ausentes; simulação de envio:", texto)
-        return {"mock": True}
+def enviar_texto(para: str, texto: str) -> dict:
     payload = {
         "messaging_product": "whatsapp",
         "to": para,
         "type": "text",
-        "text": {"body": texto}
+        "text": {"preview_url": False, "body": texto[:4096]},
     }
-    r = requests.post(WHATSAPP_API_URL, headers=HEADERS, json=payload, timeout=30)
-    if r.status_code >= 400:
-        print("[WA ERROR]", r.status_code, r.text)
-    return r.json() if r.text else {}
+    return _post_wa(payload)
 
-
-def enviar_botoes(para: str, texto: str, botoes: list):
+def enviar_botoes(para: str, corpo: str, botoes: list[dict]) -> dict:
     """
-    botoes: lista de {id, title}
+    botoes: [{"id": "cons", "titulo": "Agendar consulta"}, ...]
     """
-    if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
-        print("[WARN] ACCESS_TOKEN/PHONE_NUMBER_ID ausentes; simulação de botões:", texto, botoes)
-        return {"mock": True}
-    # WhatsApp Cloud API: interactive buttons (máx 3 por mensagem)
-    # Como temos páginas, enviamos em blocos de 3.
-    btns = [{
-        "type": "reply",
-        "reply": {"id": b["id"], "title": b["title"]}
-    } for b in botoes[:3]]
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": para,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": texto},
-            "action": {"buttons": btns}
-        }
+    interactive = {
+        "type": "button",
+        "body": {"text": corpo[:1024]},
+        "action": {
+            "buttons": [
+                {"type": "reply", "reply": {"id": b["id"], "title": b["titulo"][:20]}}
+                for b in botoes[:3]
+            ]
+        },
     }
-    r = requests.post(WHATSAPP_API_URL, headers=HEADERS, json=payload, timeout=30)
-    if r.status_code >= 400:
-        print("[WA ERROR]", r.status_code, r.text)
-    return r.json() if r.text else {}
+    payload = {"messaging_product": "whatsapp", "to": para, "type": "interactive", "interactive": interactive}
+    return _post_wa(payload)
 
+def enviar_template(
+    para: str,
+    nome_modelo: str,
+    linguagem: str = "pt_BR",
+    vars_corpo: list[str] | None = None,
+    url_botao: str | None = None,
+) -> dict:
+    """Envia Template (HSM) aprovado no Gerenciador do WhatsApp."""
+    components: list[dict] = []
+    if vars_corpo:
+        components.append({"type": "body", "parameters": [{"type": "text", "text": v} for v in vars_corpo]})
+    if url_botao:
+        components.append({
+            "type": "button", "sub_type": "url", "index": "0",
+            "parameters": [{"type": "text", "text": url_botao}]
+        })
 
-# ------------------------------------------------------------
-# Persistência: CSV + Hooks para Google Sheets
-# ------------------------------------------------------------
-PRIMEIRO_COLS = [
-    "timestamp_primeiro", "ultimo_timestamp", "numero_whatsapp",
-    "nome", "cpf", "data_nascimento",
-    "tipo", "modalidade", "convenio", "carteirinha",
-    "especialidade", "exame", "pedido_medico", "preferencia_turno",
-    "status", "observacoes"
+    template: dict = {"name": nome_modelo, "language": {"code": linguagem}}
+    if components:
+        template["components"] = components
+
+    payload = {"messaging_product": "whatsapp", "to": para, "type": "template", "template": template}
+    return _post_wa(payload)
+
+# =========================
+# Menus / Textos prontos
+# =========================
+MENU_INICIAL_BTNS = [
+    {"id": "cons", "titulo": "Agendar consulta"},
+    {"id": "atd",  "titulo": "Falar com atendente"},
+    {"id": "mais", "titulo": "Informações gerais"},
 ]
 
-HISTORICO_COLS = [
-    "timestamp", "numero_whatsapp", "etapa", "acao", "valor", "contexto"
-]
+INFO_ENDERECO = (
+    "Endereços e contato da Clínica Luma:\n"
+    "• Av. São Miguel, 7900 – CEP 08070-001\n"
+    "• Av. São Miguel, 4049/4084 – CEP 03871-000\n"
+    "WhatsApp: (11) 98878-0161\n"
+    "Instagram: @clinicadominio\n"
+    "Site: https://clinicadominio.com"
+)
 
+# Wrappers de template
+def tpl_confirmacao_atendimento(numero: str) -> dict | None:
+    try:
+        return enviar_template(numero, "confirmacao_atendimento", "pt_BR")
+    except Exception as e:
+        print("[tpl_confirmacao_atendimento] erro:", e)
 
-def _csv_ensure_headers(path: str, headers: list):
-    if not os.path.exists(path):
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(headers)
-
-
-def _csv_read_all(path: str) -> list:
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
-
-
-def _csv_write_all(path: str, headers: list, rows: list):
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=headers)
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
-
-
-def upsert_primeiro_atendimento(dados: dict):
-    _csv_ensure_headers(CSV_PRIMEIRO, PRIMEIRO_COLS)
-    rows = _csv_read_all(CSV_PRIMEIRO)
-    numero = dados.get("numero_whatsapp")
-    agora = agora_iso()
-
-    # Monta registro padrão
-    base = {c: "" for c in PRIMEIRO_COLS}
-    base.update({
-        "timestamp_primeiro": agora,
-        "ultimo_timestamp": agora,
-        "numero_whatsapp": numero,
-    })
-
-    # Procura existente por número
-    idx = None
-    for i, r in enumerate(rows):
-        if r.get("numero_whatsapp") == numero:
-            idx = i
-            break
-
-    if idx is None:
-        # Novo registro
-        for k, v in dados.items():
-            if k in base and v is not None:
-                base[k] = str(v)
-        rows.append(base)
-    else:
-        # Atualiza registro existente (upsert)
-        reg = rows[idx]
-        reg["ultimo_timestamp"] = agora
-        for k, v in dados.items():
-            if k in reg and v is not None and str(v) != "":
-                reg[k] = str(v)
-        rows[idx] = reg
-
-    _csv_write_all(CSV_PRIMEIRO, PRIMEIRO_COLS, rows)
-
-    # Hook opcional: Google Sheets (implemente aqui chamando sua função existente)
-    # try:
-    #     salvar_em_google_sheets(PLANILHA_ID, "PrimeiroAtendimento", rows[-1])
-    # except Exception as e:
-    #     print("[Sheets] Falha upsert PrimeiroAtendimento:", e)
-
-
-def log_historico(numero: str, etapa: str, acao: str, valor: str, contexto: dict | None = None):
-    _csv_ensure_headers(CSV_HISTORICO, HISTORICO_COLS)
-    row = {
-        "timestamp": agora_iso(),
-        "numero_whatsapp": numero,
-        "etapa": etapa,
-        "acao": acao,
-        "valor": valor,
-        "contexto": json.dumps(contexto or {}, ensure_ascii=False)
-    }
-    rows = _csv_read_all(CSV_HISTORICO)
-    rows.append(row)
-    _csv_write_all(CSV_HISTORICO, HISTORICO_COLS, rows)
-
-    # Hook opcional: Google Sheets (implemente aqui chamando sua função existente)
-    # try:
-    #     salvar_em_google_sheets(PLANILHA_ID, "Historico", row)
-    # except Exception as e:
-    #     print("[Sheets] Falha append Historico:", e)
-
-
-# ------------------------------------------------------------
-# Máquina de estados: helpers
-# ------------------------------------------------------------
-
-def get_estado(numero: str) -> dict:
-    return ESTADOS.get(numero, {"etapa": "inicio", "dados": {}, "tipo": None, "modalidade": None})
-
-
-def set_estado(numero: str, estado: dict):
-    ESTADOS[numero] = estado
-
-
-def set_etapa(numero: str, etapa: str):
-    est = get_estado(numero)
-    est["etapa"] = etapa
-    set_estado(numero, est)
-
-
-def salvar_dado(numero: str, chave: str, valor):
-    est = get_estado(numero)
-    est["dados"][chave] = valor
-    set_estado(numero, est)
-
-
-def limpar_estado(numero: str):
-    if numero in ESTADOS:
-        del ESTADOS[numero]
-
-
-# ------------------------------------------------------------
-# Fluxo: mensagens e botões
-# ------------------------------------------------------------
+def tpl_informativo_rapido(numero: str, info: str) -> dict | None:
+    try:
+        return enviar_template(numero, "informativo_rapido", "pt_BR", vars_corpo=[info])
+    except Exception as e:
+        print("[tpl_informativo_rapido] erro:", e)
+# =========================
+# Fluxos e helpers de negócio
+# =========================
 
 def boas_vindas(numero: str, nome: str | None = None):
-    texto = (
-        f"Olá{f' {nome}' if nome else ''}! 👋 Sou o atendimento virtual da Clínica Luma.\n"
-        "Como posso te ajudar hoje?"
-    )
+    """Tenta enviar TEMPLATE 'boas_vindas'; se falhar, menu com botões."""
+    try:
+        resp = enviar_template(numero, "boas_vindas", "pt_BR")
+        if resp and not resp.get("error"):
+            _gs_log(numero, nome, "template_enviado", "boas_vindas")
+            return
+    except Exception as e:
+        print("[boas_vindas] Falha template; fallback:", e)
+
+    texto = f"Olá{f' {nome}' if nome else ''}! 👋 Sou o atendimento virtual da Clínica Luma.\nComo podemos ajudar?"
     enviar_botoes(numero, texto, MENU_INICIAL_BTNS)
+    _gs_log(numero, nome, "menu_botoes", "MENU_INICIAL")
 
+def enviar_menu_informacoes(numero: str, nome: str | None = None):
+    enviar_texto(
+        numero,
+        "Informações gerais:\n"
+        "1) Endereço e contato\n"
+        "2) Convênios e formas de pagamento\n"
+        "3) Horários de atendimento\n\n"
+        "Digite 1, 2 ou 3."
+    )
+    _gs_log(numero, nome, "menu_texto", "INFO_GERAIS")
 
-def perguntar_convenio_ou_particular(numero: str):
-    enviar_botoes(numero, "Para sua consulta, você usará convênio ou será particular?", CONVENIO_BTNS)
+def atender_humano(numero: str, nome: str | None = None):
+    enviar_texto(
+        numero,
+        "Certo! Vou te encaminhar para um atendente humano. "
+        "Se preferir, envie um resumo do seu caso para agilizar. 🙏"
+    )
+    _gs_log(numero, nome, "roteamento", "humano")
 
+def iniciar_pre_agendamento(numero: str, nome: str | None = None):
+    _gs_upsert_contato(numero, nome=nome, interesse="consulta")
+    enviar_texto(
+        numero,
+        "Perfeito! Para agendarmos sua consulta, por favor, informe:\n"
+        "• Nome completo\n"
+        "• Especialidade (ex.: Clínica Geral, Pediatria, etc.)\n"
+        "• Preferência de dia/horário"
+    )
+    _gs_log(numero, nome, "pre_agendamento", "coletar_dados")
 
-def perguntar_dados_basicos(numero: str, incluir_convenio: bool):
-    # Nome
-    enviar_texto(numero, "Por favor, me informe o *nome completo* do paciente.")
-    set_etapa(numero, "cons_nome")
-    salvar_dado(numero, "coletar_convenio", incluir_convenio)
+# --- detecção simples de nome em frases do usuário ---
+_RE_NOME = re.compile(
+    r"(?:meu\s+nome\s+é|meu\s+nome\s*:?|sou\s+|chamo-me\s+|eu\s+me\s+chamo\s+)(?P<nome>.+)$",
+    re.IGNORECASE
+)
 
+def extrair_nome_de_texto(texto: str) -> str | None:
+    m = _RE_NOME.search((texto or "").strip())
+    if not m:
+        return None
+    nome = m.group("nome").strip()
+    # remove emojis
+    nome = re.sub(r"[\u2600-\u27BF\U0001F300-\U0001FAFF]+", "", nome).strip()
+    return nome[:60] if nome else None
 
-def perguntar_especialidade(numero: str):
-    enviar_botoes(numero, "Qual especialidade você procura?", ESPECIALIDADES_BTNS_P1)
-    time.sleep(0.6)
-    enviar_botoes(numero, "Mais opções:", ESPECIALIDADES_BTNS_P2)
+# --- detecção de especialidade ---
+_SPECIALTIES = [
+    "clínica geral", "clinica geral", "pediatria", "dermatologia", "cardiologia",
+    "ginecologia", "ortopedia", "oftalmologia", "odontologia", "psicologia",
+    "otorrinolaringologia", "endocrinologia", "urologia", "neurologia",
+    "nutrição", "nutricao", "fisioterapia"
+]
 
+def extrair_especialidade(texto: str) -> str | None:
+    t = (texto or "").lower().strip()
+    m = re.search(r"(?:especialidade\s*:?\s*|consulta\s+em\s+|quero\s+)([a-zçãõéêíóúà ]{4,})", t)
+    candidato = m.group(1).strip() if m else t
+    for esp in _SPECIALTIES:
+        if esp in candidato:
+            return esp.title().replace("Clinica", "Clínica").replace("Nutricao", "Nutrição")
+    return None
 
-def perguntar_preferencia(numero: str):
-    enviar_botoes(numero, "Qual sua preferência de atendimento?", PREFERENCIA_BTNS)
+# =========================
+# Processamento de botões e textos
+# =========================
 
+def processar_botao(numero: str, button_id_ou_titulo: str, nome: str | None = None):
+    """Mapeia títulos do template para IDs do fluxo local e roteia."""
+    # Mapear títulos do template 'boas_vindas' -> IDs locais
+    if button_id_ou_titulo in ("Agendar consulta", "Falar com atendente", "Informações gerais"):
+        mapa = {"Agendar consulta": "cons", "Falar com atendente": "atd", "Informações gerais": "mais"}
+        button_id = mapa.get(button_id_ou_titulo, button_id_ou_titulo)
+    else:
+        button_id = button_id_ou_titulo
 
-def resumo_confirmacao(numero: str):
-    est = get_estado(numero)
-    d = est.get("dados", {})
-    linhas = [
-        "Confira seus dados:",
-        f"• Tipo: {est.get('tipo') or '—'}",
-        f"• Modalidade: {est.get('modalidade') or '—'}",
-        f"• Nome: {d.get('nome', '—')}",
-        f"• CPF: {d.get('cpf', '—')}",
-        f"• Nascimento: {d.get('nascimento', '—')}",
-        f"• Convênio: {d.get('convenio', '—')}",
-        f"• Carteirinha: {d.get('carteirinha', '—')}",
-        f"• Especialidade: {d.get('especialidade', '—')}",
-        f"• Exame: {d.get('exame', '—')}",
-        f"• Pedido médico: {d.get('pedido_medico', '—')}",
-        f"• Preferência: {d.get('preferencia', '—')}",
-    ]
-    enviar_texto(numero, "\n".join(linhas))
-    enviar_botoes(numero, "Posso confirmar o pré-agendamento com esses dados?", [
-        {"id": "confirma_cons", "title": "Confirmar"},
-        {"id": "editar_cons", "title": "Editar"},
-    ])
+    _gs_log(numero, nome, "click_botao", button_id)
 
-
-def perguntar_tipo_exame(numero: str):
-    enviar_botoes(numero, "Qual exame você precisa?", EXAMES_BTNS_P1)
-    time.sleep(0.6)
-    enviar_botoes(numero, "Mais opções:", EXAMES_BTNS_P2)
-
-
-def perguntar_pedido_medico(numero: str):
-    enviar_botoes(numero, "Você possui *pedido médico* para esse exame?", SIM_NAO_BTNS)
-
-
-# ------------------------------------------------------------
-# Entrada principal
-# ------------------------------------------------------------
-
-def processar_texto(numero: str, texto: str, nome_exibicao: str | None = None):
-    texto_l = (texto or "").strip()
-    est = get_estado(numero)
-    etapa = est.get("etapa", "inicio")
-
-    # Primeiro contato
-    if etapa == "inicio":
-        # Captura nome de exibição se vier
-        if nome_exibicao and not est["dados"].get("nome"):
-            salvar_dado(numero, "nome", nome_exibicao)
-            upsert_primeiro_atendimento({
-                "numero_whatsapp": numero,
-                "nome": nome_exibicao,
-            })
-        log_historico(numero, etapa="menu_inicial", acao="texto", valor=texto_l)
-        boas_vindas(numero, est["dados"].get("nome"))
+    if button_id == "cons":
+        iniciar_pre_agendamento(numero, nome)
+        return
+    if button_id == "atd":
+        atender_humano(numero, nome)
+        return
+    if button_id == "mais":
+        enviar_menu_informacoes(numero, nome)
         return
 
-    # Etapas de coleta Consulta
-    if etapa == "cons_nome":
-        salvar_dado(numero, "nome", texto_l)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "nome": texto_l})
-        log_historico(numero, etapa="cons_nome", acao="texto", valor=texto_l, contexto={"tipo": "Consulta"})
-        enviar_texto(numero, "Informe o *CPF* (apenas números):")
-        set_etapa(numero, "cons_cpf")
+    # Sub-itens do menu Informações gerais
+    if button_id == "1":
+        try:
+            tpl_informativo_rapido(numero, INFO_ENDERECO)
+            _gs_log(numero, nome, "envio_template", "informativo_endereco|menu_1")
+        except Exception:
+            enviar_texto(numero, INFO_ENDERECO)
+        return
+    if button_id == "2":
+        enviar_texto(
+            numero,
+            "Convênios e pagamentos:\n"
+            "• Convênios: Amil, Bradesco, SulAmérica, Unimed (consultar disponibilidade)\n"
+            "• Particulares: PIX / Cartão / Boleto"
+        )
+        return
+    if button_id == "3":
+        enviar_texto(
+            numero,
+            "Horários:\n• Seg–Sex: 08:00–18:00\n• Sábados: 08:00–12:00\n• Dom./Feriados: Plantão sob disponibilidade"
+        )
         return
 
-    if etapa == "cons_cpf":
-        d = normalizar_cpf(texto_l)
-        if not cpf_valido(d):
-            enviar_texto(numero, "CPF inválido. Envie novamente (apenas números, 11 dígitos).")
-            return
-        salvar_dado(numero, "cpf", d)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "cpf": d})
-        log_historico(numero, etapa="cons_cpf", acao="texto", valor=d, contexto={"tipo": "Consulta"})
-        enviar_texto(numero, "Qual a *data de nascimento*? (DD/MM/AAAA)")
-        set_etapa(numero, "cons_nasc")
+    enviar_texto(numero, "Não entendi. Vou te mostrar o menu novamente.")
+    boas_vindas(numero, nome)
+
+def processar_texto(numero: str, texto: str, nome_atual: str | None = None):
+    """Regra para texto livre: detecta nome, especialidade, atalhos, etc."""
+    tnorm = (texto or "").strip()
+    tnorm_low = tnorm.lower()
+
+    # Captura de nome declarada pelo usuário
+    novo_nome = extrair_nome_de_texto(tnorm)
+    if novo_nome:
+        _gs_upsert_contato(numero, nome=novo_nome)
+        _gs_log(numero, novo_nome, "nome_atualizado", novo_nome)
+        enviar_texto(numero, f"Obrigado, {novo_nome}! Nome atualizado. 😊")
+        boas_vindas(numero, novo_nome)
         return
 
-    if etapa == "cons_nasc":
-        if not data_valida(texto_l):
-            enviar_texto(numero, "Data inválida. Use o formato DD/MM/AAAA.")
-            return
-        salvar_dado(numero, "nascimento", texto_l)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "data_nascimento": texto_l})
-        log_historico(numero, etapa="cons_nasc", acao="texto", valor=texto_l, contexto={"tipo": "Consulta"})
-
-        if est["dados"].get("coletar_convenio"):
-            enviar_texto(numero, "Qual o *convênio*? (Se não encontrar depois nos botões, digite aqui)")
-            set_etapa(numero, "cons_convenio")
-        else:
-            perguntar_especialidade(numero)
-            set_etapa(numero, "cons_esp")
+    # Captura de ESPECIALIDADE
+    esp = extrair_especialidade(tnorm)
+    if esp:
+        _gs_upsert_contato(numero, nome=nome_atual, especialidade=esp)
+        _gs_log(numero, nome_atual, "especialidade", esp, especialidade=esp)
+        enviar_texto(numero, f"Anotado: especialidade pretendida = {esp}.")
+        enviar_texto(numero, "Informe, por favor, a preferência de dia/horário para verificarmos a melhor agenda.")
         return
 
-    if etapa == "cons_convenio":
-        salvar_dado(numero, "convenio", texto_l)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "convenio": texto_l})
-        log_historico(numero, etapa="cons_convenio", acao="texto", valor=texto_l, contexto={"tipo": "Consulta", "modalidade": "Convênio"})
-        enviar_texto(numero, "Se tiver *número da carteirinha*, envie agora (ou diga 'pular').")
-        set_etapa(numero, "cons_carteirinha")
+    # Saudações → boas-vindas
+    if tnorm_low in {"oi", "olá", "ola", "bom dia", "boa tarde", "boa noite", "hello", "hi"}:
+        boas_vindas(numero, nome_atual)
         return
 
-    if etapa == "cons_carteirinha":
-        if texto_l.lower() != "pular":
-            salvar_dado(numero, "carteirinha", texto_l)
-            upsert_primeiro_atendimento({"numero_whatsapp": numero, "carteirinha": texto_l})
-        log_historico(numero, etapa="cons_carteirinha", acao="texto", valor=texto_l, contexto={"tipo": "Consulta", "modalidade": "Convênio"})
-        perguntar_especialidade(numero)
-        set_etapa(numero, "cons_esp")
+    # Se digitar 1/2/3 após menu de informações
+    if tnorm_low in {"1", "2", "3"}:
+        processar_botao(numero, tnorm_low, nome_atual)
         return
 
-    if etapa == "cons_esp_outro":
-        salvar_dado(numero, "especialidade", texto_l)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "especialidade": texto_l})
-        log_historico(numero, etapa="cons_esp_outro", acao="texto", valor=texto_l, contexto={"tipo": "Consulta"})
-        perguntar_preferencia(numero)
-        set_etapa(numero, "cons_pref")
+    # Palavras-chave endereço/site/contato
+    if any(k in tnorm_low for k in ["endereco", "endereço", "site", "contato", "telefone"]):
+        try:
+            tpl_informativo_rapido(numero, INFO_ENDERECO)
+            _gs_log(numero, nome_atual, "envio_template", "informativo_endereco", especialidade=None)
+        except Exception:
+            enviar_texto(numero, INFO_ENDERECO)
         return
 
-    # Exames texto
-    if etapa == "exam_outro":
-        salvar_dado(numero, "exame", texto_l)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "exame": texto_l})
-        log_historico(numero, etapa="exam_outro", acao="texto", valor=texto_l, contexto={"tipo": "Exame"})
-        perguntar_pedido_medico(numero)
-        set_etapa(numero, "exam_pedido")
+    # Agendar
+    if "agend" in tnorm_low:
+        iniciar_pre_agendamento(numero, nome_atual)
         return
 
-    # Fallback: se digitou algo fora do esperado
-    enviar_texto(numero, "Não entendi. Use os botões ou responda conforme solicitado. 😊")
-
-
-def processar_botao(numero: str, button_id: str, nome_exibicao: str | None = None):
-    est = get_estado(numero)
-    etapa = est.get("etapa", "inicio")
-
-    # Menu inicial
-    if button_id in ("cons", "exam", "mais"):
-        if nome_exibicao and not est["dados"].get("nome"):
-            salvar_dado(numero, "nome", nome_exibicao)
-            upsert_primeiro_atendimento({"numero_whatsapp": numero, "nome": nome_exibicao})
-        if button_id == "cons":
-            est["tipo"] = "Consulta"
-            set_estado(numero, est)
-            upsert_primeiro_atendimento({"numero_whatsapp": numero, "tipo": "Consulta"})
-            log_historico(numero, etapa="menu_inicial", acao="clique_botao", valor="Consulta")
-            perguntar_convenio_ou_particular(numero)
-            set_etapa(numero, "cons_conv_part")
-            return
-        if button_id == "exam":
-            est["tipo"] = "Exame"
-            set_estado(numero, est)
-            upsert_primeiro_atendimento({"numero_whatsapp": numero, "tipo": "Exame"})
-            log_historico(numero, etapa="menu_inicial", acao="clique_botao", valor="Exames")
-            perguntar_tipo_exame(numero)
-            set_etapa(numero, "exam_tipo")
-            return
-        if button_id == "mais":
-            log_historico(numero, etapa="menu_inicial", acao="clique_botao", valor="Mais opções")
-            enviar_botoes(numero, "Escolha uma opção:", [
-                {"id": "info_endereco", "title": "Endereço/Contato"},
-                {"id": "info_horarios", "title": "Horários"},
-                {"id": "humano", "title": "Falar com atendente"},
-            ])
-            set_etapa(numero, "mais_menu")
-            return
-
-    # Consulta: convênio/particular
-    if etapa == "cons_conv_part" and button_id in ("cons_conv", "cons_part"):
-        if button_id == "cons_conv":
-            est["modalidade"] = "Convênio"
-            set_estado(numero, est)
-            upsert_primeiro_atendimento({"numero_whatsapp": numero, "modalidade": "Convênio"})
-            log_historico(numero, etapa="cons_conv_part", acao="clique_botao", valor="Convênio", contexto={"tipo": "Consulta"})
-            perguntar_dados_basicos(numero, incluir_convenio=True)
-            return
-        else:
-            est["modalidade"] = "Particular"
-            set_estado(numero, est)
-            upsert_primeiro_atendimento({"numero_whatsapp": numero, "modalidade": "Particular"})
-            log_historico(numero, etapa="cons_conv_part", acao="clique_botao", valor="Particular", contexto={"tipo": "Consulta"})
-            perguntar_dados_basicos(numero, incluir_convenio=False)
-            return
-
-    # Consulta: especialidade via botões
-    if etapa == "cons_esp" and button_id.startswith("esp_"):
-        mapa = {
-            "esp_clinico": "Clínico Geral",
-            "esp_pediatria": "Pediatria",
-            "esp_gineco": "Ginecologia",
-            "esp_cardio": "Cardiologia",
-            "esp_orto": "Ortopedia",
-            "esp_outro": "Outra",
-        }
-        escolha = mapa.get(button_id, "Outra")
-        if escolha == "Outra":
-            enviar_texto(numero, "Digite qual especialidade você procura:")
-            set_etapa(numero, "cons_esp_outro")
-            return
-        salvar_dado(numero, "especialidade", escolha)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "especialidade": escolha})
-        log_historico(numero, etapa="cons_esp", acao="clique_botao", valor=escolha, contexto={"tipo": "Consulta"})
-        perguntar_preferencia(numero)
-        set_etapa(numero, "cons_pref")
+    # Atendente humano
+    if any(k in tnorm_low for k in ["humano", "atendente", "falar com atendente", "pessoa"]):
+        atender_humano(numero, nome_atual)
         return
 
-    if etapa == "cons_pref" and button_id.startswith("pref_"):
-        mapa = {
-            "pref_manha": "Manhã",
-            "pref_tarde": "Tarde",
-            "pref_qualq": "Qualquer",
-        }
-        pref = mapa.get(button_id, "Qualquer")
-        salvar_dado(numero, "preferencia", pref)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "preferencia_turno": pref})
-        log_historico(numero, etapa="cons_pref", acao="clique_botao", valor=pref, contexto={"tipo": "Consulta"})
-        resumo_confirmacao(numero)
-        set_etapa(numero, "cons_confirma")
-        return
-
-    if etapa == "cons_confirma" and button_id in ("confirma_cons", "editar_cons"):
-        if button_id == "confirma_cons":
-            upsert_primeiro_atendimento({"numero_whatsapp": numero, "status": "Aguardando"})
-            log_historico(numero, etapa="cons_confirma", acao="clique_botao", valor="Confirmar", contexto={"tipo": "Consulta"})
-            enviar_texto(numero, "Perfeito! Seus dados foram registrados. Nossa equipe entrará em contato para confirmar o horário. ✅")
-            limpar_estado(numero)
-            return
-        else:
-            log_historico(numero, etapa="cons_confirma", acao="clique_botao", valor="Editar", contexto={"tipo": "Consulta"})
-            perguntar_convenio_ou_particular(numero)
-            set_etapa(numero, "cons_conv_part")
-            return
-
-    # Exames: tipo via botões
-    if etapa == "exam_tipo" and button_id.startswith("ex_"):
-        mapa = {
-            "ex_hemo": "Hemograma",
-            "ex_raiox": "Raio-X",
-            "ex_ultra": "Ultrassom",
-            "ex_eletro": "Eletrocardiograma",
-            "ex_urina": "Urina",
-            "ex_outro": "Outro",
-        }
-        escolha = mapa.get(button_id, "Outro")
-        if escolha == "Outro":
-            enviar_texto(numero, "Digite qual exame você precisa:")
-            set_etapa(numero, "exam_outro")
-            return
-        salvar_dado(numero, "exame", escolha)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "exame": escolha})
-        log_historico(numero, etapa="exam_tipo", acao="clique_botao", valor=escolha, contexto={"tipo": "Exame"})
-        perguntar_pedido_medico(numero)
-        set_etapa(numero, "exam_pedido")
-        return
-
-    if etapa == "exam_pedido" and button_id in ("sim", "nao"):
-        pm = "Sim" if button_id == "sim" else "Não"
-        salvar_dado(numero, "pedido_medico", pm)
-        upsert_primeiro_atendimento({"numero_whatsapp": numero, "pedido_medico": pm})
-        log_historico(numero, etapa="exam_pedido", acao="clique_botao", valor=pm, contexto={"tipo": "Exame"})
-        # Coletar dados básicos (nome, cpf, nascimento) depois do pedido médico
-        enviar_texto(numero, "Informe o *nome completo* do paciente.")
-        set_etapa(numero, "cons_nome")  # Reaproveitamos as etapas de coleta de dados
-        return
-
-    # Mais opções
-    if etapa == "mais_menu":
-        if button_id == "info_endereco":
-            log_historico(numero, etapa="mais_menu", acao="clique_botao", valor="Endereço/Contato")
-            enviar_texto(numero, "📍 Endereço: Av. São Miguel, 7900 – CEP 08070-001\n☎️ Contato: (11) 98878-0161")
-            boas_vindas(numero, est["dados"].get("nome"))
-            set_etapa(numero, "inicio")
-            return
-        if button_id == "info_horarios":
-            log_historico(numero, etapa="mais_menu", acao="clique_botao", valor="Horários")
-            enviar_texto(numero, "⏰ Atendemos de segunda a sexta, 8h às 18h (ajuste conforme a clínica).")
-            boas_vindas(numero, est["dados"].get("nome"))
-            set_etapa(numero, "inicio")
-            return
-        if button_id == "humano":
-            log_historico(numero, etapa="mais_menu", acao="clique_botao", valor="Falar com atendente")
-            upsert_primeiro_atendimento({"numero_whatsapp": numero, "status": "Encaminhado humano"})
-            enviar_texto(numero, "Certo! Vou te transferir para um atendente humano. Aguarde um instante, por favor.")
-            limpar_estado(numero)
-            return
-
-    # Se nada casou
-    enviar_texto(numero, "Não entendi. Use os botões ou responda conforme solicitado. 😊")
-
-
-# ------------------------------------------------------------
-# Entrada pública a partir do webhook
-# ------------------------------------------------------------
-
-def responder(evento: dict):
+    # Padrão: mostra menu
+    enviar_texto(numero, "Não entendi perfeitamente. Vou te mostrar o menu para facilitar. 😉")
+    boas_vindas(numero, nome_atual)
+# =========================
+# Entrada pública chamada pelo webhook.py
+# =========================
+def responder_evento_mensagem(entry: dict) -> None:
     """
-    Entrada principal. Chame esta função a partir do webhook:
-    - Para mensagens de texto: chama processar_texto
-    - Para botões (interactive replies): chama processar_botao
+    Recebe um 'entry' do webhook (conforme entrega do Meta) e processa:
+    - Mensagens de texto
+    - Cliques em botões (interactive/button_reply ou list_reply)
+    Também salva/atualiza o nome e registra logs no Google Sheets.
     """
     try:
-        entry = evento.get("entry", [])[0]
-        changes = entry.get("changes", [])[0]
-        value = changes.get("value", {})
-        contacts = value.get("contacts", [])
-        nome_exibicao = contacts[0].get("profile", {}).get("name") if contacts else None
+        changes = entry.get("changes", [])
+        if not changes:
+            return
+        value = changes[0].get("value", {})
+        msgs = value.get("messages", [])
+        if not msgs:
+            return
 
-        for msg in value.get("messages", []):
-            numero = msg.get("from")
-            tipo = msg.get("type")
+        msg = msgs[0]
+        numero = msg.get("from")
 
-            # Garante cartão do cliente no primeiro contato
-            upsert_primeiro_atendimento({
-                "numero_whatsapp": numero,
-                "ultimo_timestamp": agora_iso(),
-            })
+        # Capturar nome do perfil (pode ser curto, depende do usuário)
+        contato = (value.get("contacts") or [{}])[0]
+        perfil = contato.get("profile", {}) if isinstance(contato, dict) else {}
+        nome = perfil.get("name")
 
-            if tipo == "text":
-                texto = msg.get("text", {}).get("body", "")
-                processar_texto(numero, texto, nome_exibicao)
-                continue
+        # Salvar/atualizar cadastro e logar acesso
+        _gs_upsert_contato(numero, nome=nome)
+        _gs_log(numero, nome, "acesso", msg.get("type", ""))
 
-            if tipo == "interactive":
-                interactive = msg.get("interactive", {})
-                if interactive.get("type") == "button_reply":
-                    button_id = interactive.get("button_reply", {}).get("id")
-                    processar_botao(numero, button_id, nome_exibicao)
-                    continue
+        # Interativo: botão/lista
+        if msg.get("type") == "interactive":
+            interactive = msg.get("interactive", {})
+            if interactive.get("type") == "button_reply":
+                reply = interactive.get("button_reply", {})
+                button_id = reply.get("id") or reply.get("title")
+                if button_id:
+                    processar_botao(numero, button_id, nome)
+                    return
+            if interactive.get("type") == "list_reply":
+                reply = interactive.get("list_reply", {})
+                opt = reply.get("id") or reply.get("title")
+                if opt:
+                    processar_botao(numero, opt, nome)
+                    return
 
-            # Outros tipos (image, document, etc.)
-            enviar_texto(numero, "Recebi seu conteúdo. Por favor, use os botões ou responda conforme solicitado.")
+        # Texto
+        if msg.get("type") == "text":
+            texto = msg.get("text", {}).get("body", "")
+            processar_texto(numero, texto, nome)
+            return
+
+        # Qualquer outro tipo → menu
+        boas_vindas(numero, nome)
+
     except Exception as e:
-        print("[Responder] Erro ao processar evento:", e)
+        print("[responder_evento_mensagem] erro:", e)
 
-
-# ------------------------------------------------------------
-# Funções de verificação do webhook (usadas no webhook.py)
-# ------------------------------------------------------------
-
-def verify_token(token_enviado: str) -> bool:
-    return token_enviado == VERIFY_TOKEN
-
-
-# ------------------------------------------------------------
-# Notas de integração com webhook.py
-# ------------------------------------------------------------
-# - Seu webhook.py deve chamar `verify_token` na verificação GET.
-# - No POST, repasse o JSON completo para `responder(evento)`.
-#   Exemplo (Flask):
-#
-# @app.route('/webhook', methods=['GET'])
-# def webhook_verify():
-#     mode = request.args.get('hub.mode')
-#     token = request.args.get('hub.verify_token')
-#     challenge = request.args.get('hub.challenge')
-#     if mode == 'subscribe' and verify_token(token):
-#         return challenge, 200
-#     return 'Token inválido', 403
-#
-# @app.route('/webhook', methods=['POST'])
-# def webhook_receive():
-#     data = request.get_json()
-#     responder(data)
-#     return 'EVENT_RECEIVED', 200
-#
-# Observação importante:
-# - Este arquivo envia mensagens diretamente à API do WhatsApp Cloud.
-# - Se você já tem utilitários próprios (send_message, enviar_botoes etc.),
-#   você pode substituir `enviar_texto` e `enviar_botoes` por seus wrappers
-#   para manter logs e consistência.
-# - Para Google Sheets, plugue suas funções nas seções "Hook opcional".
+# =========================
+# Testes locais
+# =========================
+if __name__ == "__main__":
+    # Ex.: python responder.py 5511958285000 "oi"
+    import sys
+    to = sys.argv[1] if len(sys.argv) > 1 else "5511999999999"
+    body = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else "oi"
+    print(">> Teste local:", to, "|", body)
+    processar_texto(to, body, nome_atual=None)
