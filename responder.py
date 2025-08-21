@@ -363,10 +363,10 @@ def processar_texto(numero: str, texto: str, nome_atual: str | None = None):
     if any(k in tnorm_low for k in ["humano","atendente","falar com atendente","pessoa"]):
         atender_humano(numero, nome_atual); return
 
-    # Fallback padrão → repete menu
+    # Fallback padrão → NÃO repete menu (já foi enviado pelo responder_evento_mensagem)
     nome_base = nome_atual or "Cliente"
-    enviar_texto(numero, f"Não entendi sua mensagem, {nome_base}. Posso te ajudar por aqui 👇")
-    boas_vindas(numero, nome_atual)
+    enviar_texto(numero, f"Não entendi sua mensagem, {nome_base}. Escolha uma opção acima 👆")
+    # (intencionalmente sem chamar boas_vindas aqui)
 
 # =========================
 # Entrada pública (webhook)
