@@ -1,9 +1,17 @@
-# responder.py — Clínica Luma (atualizado)
-# Funções:
-# - Envio de templates (HSM) e botões interativos
-# - Boas-vindas com fallback
-# - Menus interativos (inicial e informações)
-# - Integração Google Sheets (cadastro e histórico)
+# responder.py — Clínica Luma (refatorado e comentado)
+# ----------------------------------------------------
+# Objetivo:
+# - Em QUALQUER mensagem recebida, enviar SAUDAÇÃO com NOME + MENU inicial (botões)
+# - Em seguida, processar o texto/botões para continuar o fluxo
+#
+# Principais funções:
+# - responder_evento_mensagem(entry): ponto de entrada chamado pelo webhook.py
+# - boas_vindas(numero, nome): envia texto de boas-vindas e os botões do menu inicial
+# - processar_texto(...): interpreta mensagens livres (nome, especialidade, atalhos)
+# - processar_botao(...): roteia cliques dos botões
+#
+# Observação:
+# - Google Sheets é opcional; se PLANILHA_ID/credenciais não estiverem setados, apenas logamos no console.
 
 from __future__ import annotations
 
@@ -12,40 +20,40 @@ import re
 import json
 import typing as t
 from datetime import datetime, timezone, timedelta
-
 import requests
 
 # =========================
 # Credenciais e Constantes
 # =========================
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "").strip()
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID", "").strip()
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "sullato_token_verificacao")
+ACCESS_TOKEN   = os.getenv("ACCESS_TOKEN", "").strip()
+PHONE_NUMBER_ID= os.getenv("PHONE_NUMBER_ID", "").strip()
+VERIFY_TOKEN   = os.getenv("VERIFY_TOKEN", "clinica_luma_token")
 
-PLANILHA_ID = os.getenv("PLANILHA_ID", "").strip()  # ID da planilha Google
-GS_CRED_PATH = os.getenv("GOOGLE_SHEET_JSON", "credenciais_sheets.json").strip()
+PLANILHA_ID    = os.getenv("PLANILHA_ID", "").strip()  # ID da planilha Google
+GS_CRED_PATH   = os.getenv("GOOGLE_SHEET_JSON", "credenciais_sheets.json").strip()
 
-NOME_EMPRESA = os.getenv("NOME_EMPRESA", "Clínica Médica Luma")
-LINK_SITE = os.getenv("LINK_SITE", "https://www.lumaclinicadafamilia.com.br")
+NOME_EMPRESA   = os.getenv("NOME_EMPRESA", "Clínica Médica Luma")
+LINK_SITE      = os.getenv("LINK_SITE", "https://www.lumaclinicadafamilia.com.br")
 LINK_INSTAGRAM = os.getenv("LINK_INSTAGRAM", "https://www.instagram.com/luma_clinicamedica")
 
-# Templates (todos Utilidade, pt_BR)
-TPL_BOAS_VINDAS = "boas_vindas_clinica_luma"
-TPL_CONFIRMACAO = "confirmacao_consulta"
-TPL_LEMBRETE_24H = "lembrete_consulta_24h"
-TPL_RESULTADO = "resultado_exame_disponivel"
-TPL_POS_ATEND = "pos_atendimento_orientacoes"
-TPL_REABERTURA = "reabertura_contato_servico"
+# (opcional) Templates — mantidos para uso futuro
+TPL_BOAS_VINDAS   = "boas_vindas_clinica_luma"
+TPL_CONFIRMACAO   = "confirmacao_consulta"
+TPL_LEMBRETE_24H  = "lembrete_consulta_24h"
+TPL_RESULTADO     = "resultado_exame_disponivel"
+TPL_POS_ATEND     = "pos_atendimento_orientacoes"
+TPL_REABERTURA    = "reabertura_contato_servico"
 
-GRAPH_BASE = "https://graph.facebook.com/v20.0"
-WHATSAPP_API_URL = f"{GRAPH_BASE}/{PHONE_NUMBER_ID}/messages" if PHONE_NUMBER_ID else ""
-HEADERS = {"Authorization": f"Bearer {ACCESS_TOKEN}" if ACCESS_TOKEN else "", "Content-Type": "application/json"}
+GRAPH_BASE        = "https://graph.facebook.com/v20.0"
+WHATSAPP_API_URL  = f"{GRAPH_BASE}/{PHONE_NUMBER_ID}/messages" if PHONE_NUMBER_ID else ""
+HEADERS           = {"Authorization": f"Bearer {ACCESS_TOKEN}" if ACCESS_TOKEN else "", "Content-Type": "application/json"}
 
 # =========================
 # Timezone Brasil (sem DST)
 # =========================
 TZ_BR = timezone(timedelta(hours=-3))  # Brasília
 def _tz_now_str() -> str:
+    """Retorna a hora atual em São Paulo (UTC-3)"""
     return datetime.now(TZ_BR).strftime("%Y-%m-%d %H:%M:%S -03:00")
 
 # =========================
@@ -83,7 +91,7 @@ def _gs_try_init():
         sh = gc.open_by_key(PLANILHA_ID)
 
         try:
-            ws1 = sh.worksheet("Pagina1")
+            ws1 = sh.worksheet("Pagina1")  # Nome simples p/ evitar acento
         except Exception:
             ws1 = sh.add_worksheet(title="Pagina1", rows=1000, cols=10)
         _gs_ensure_headers(ws1, ["Numero", "Nome", "UltimoInteresse", "AtualizadoEm", "Especialidade"])
@@ -94,9 +102,9 @@ def _gs_try_init():
             wsh = sh.add_worksheet(title="Historico", rows=2000, cols=12)
         _gs_ensure_headers(wsh, ["DataHora", "Numero", "Nome", "Evento", "Detalhe", "Origem", "Especialidade"])
 
-        _gs_client = gc
-        _gs_pagina1 = ws1
-        _gs_historico = wsh
+        _gs_client   = gc
+        _gs_pagina1  = ws1
+        _gs_historico= wsh
         print("[GS] Conectado e abas prontas.")
     except Exception as e:
         print("[GS] Falha ao iniciar:", e)
@@ -142,8 +150,9 @@ def _gs_log(numero: str, nome: str | None, evento: str, detalhe: str = "", orige
         _gs_historico.append_row([_tz_now_str(), numero, nome or "", evento, detalhe, origem, especialidade or ""], value_input_option="USER_ENTERED")
     except Exception as e:
         print("[GS] log erro:", e)
+
 # =========================
-# Util WhatsApp
+# Util WhatsApp (envio)
 # =========================
 def _tem_credenciais() -> bool:
     return bool(ACCESS_TOKEN and PHONE_NUMBER_ID)
@@ -161,7 +170,12 @@ def _post_wa(payload: dict, timeout: int = 30) -> dict:
         return {"status_code": resp.status_code, "text": resp.text}
 
 def enviar_texto(para: str, texto: str) -> dict:
-    payload = {"messaging_product": "whatsapp", "to": para, "type": "text", "text": {"preview_url": False, "body": texto[:4096]}}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": para,
+        "type": "text",
+        "text": {"preview_url": False, "body": texto[:4096]},
+    }
     return _post_wa(payload)
 
 def enviar_botoes(para: str, corpo: str, botoes: list[dict]) -> dict:
@@ -171,12 +185,18 @@ def enviar_botoes(para: str, corpo: str, botoes: list[dict]) -> dict:
     interactive = {
         "type": "button",
         "body": {"text": corpo[:1024]},
-        "action": {"buttons": [{"type": "reply", "reply": {"id": b["id"], "title": b["titulo"][:20]}} for b in botoes[:3]]},
+        "action": {
+            "buttons": [
+                {"type": "reply", "reply": {"id": b["id"], "title": b["titulo"][:20]}}
+                for b in botoes[:3]
+            ]
+        },
     }
     payload = {"messaging_product": "whatsapp", "to": para, "type": "interactive", "interactive": interactive}
     return _post_wa(payload)
 
 def enviar_template(para: str, nome_modelo: str, linguagem: str = "pt_BR", vars_corpo: list[str] | None = None, url_botao: str | None = None) -> dict:
+    """Mantido para uso posterior (lembrete, confirmação etc.). Não usado na saudação inicial."""
     components: list[dict] = []
     if vars_corpo:
         components.append({"type": "body", "parameters": [{"type": "text", "text": v} for v in vars_corpo]})
@@ -217,17 +237,14 @@ INFO_ENDERECO = (
 # =========================
 def boas_vindas(numero: str, nome: str | None = None):
     """
-    Envia o template 'boas_vindas_clinica_luma' (com {{1}} = nome ou 'Cliente')
-    e logo na sequência o menu inicial com botões.
+    SAUDAÇÃO PADRÃO (SEMPRE): envia texto com o nome + em seguida, botões do menu inicial.
+    Obs.: não usa template aqui para garantir ordem (texto -> botões) no WhatsApp.
     """
     nome_tpl = (nome or "Cliente")
-    try:
-        enviar_template(numero, TPL_BOAS_VINDAS, "pt_BR", [nome_tpl])
-        _gs_log(numero, nome, "template_enviado", TPL_BOAS_VINDAS)
-    except Exception as e:
-        print("[boas_vindas] Falha template; fallback:", e)
-        enviar_texto(numero, f"Olá, {nome_tpl}! Para agilizar seu atendimento, escolha uma opção abaixo.")
-
+    # 1) Texto com nome
+    enviar_texto(numero, f"Olá, {nome_tpl}! Você está em contato com a {NOME_EMPRESA}. "
+                         f"Para agilizar seu atendimento, escolha uma opção abaixo.")
+    # 2) Botões do menu inicial
     enviar_botoes(numero, "Escolha uma opção:", MENU_INICIAL_BTNS)
     _gs_log(numero, nome, "menu_botoes", "MENU_INICIAL")
 
@@ -241,7 +258,10 @@ def atender_humano(numero: str, nome: str | None = None):
 
 def iniciar_pre_agendamento(numero: str, nome: str | None = None):
     _gs_upsert_contato(numero, nome=nome, interesse="consulta")
-    enviar_texto(numero, "Perfeito! Para agendarmos, informe por favor:\n• Nome completo\n• Especialidade (ex.: Clínica Geral, Pediatria...)\n• Preferência de dia/horário")
+    enviar_texto(numero, "Perfeito! Para agendarmos, informe por favor:\n"
+                         "• Nome completo\n"
+                         "• Especialidade (ex.: Clínica Geral, Pediatria...)\n"
+                         "• Preferência de dia/horário")
     _gs_log(numero, nome, "pre_agendamento", "coletar_dados")
 
 # --- detecção simples de nome em frases do usuário ---
@@ -299,6 +319,7 @@ def processar_botao(numero: str, button_id_ou_titulo: str, nome: str | None = No
 
     enviar_texto(numero, "Não entendi. Vou te mostrar o menu novamente.")
     boas_vindas(numero, nome)
+
 def processar_texto(numero: str, texto: str, nome_atual: str | None = None):
     """Regra para texto livre: detecta nome, especialidade e atalhos."""
     tnorm = (texto or "").strip()
@@ -322,7 +343,7 @@ def processar_texto(numero: str, texto: str, nome_atual: str | None = None):
         enviar_texto(numero, "Informe, por favor, a preferência de dia/horário para verificarmos a melhor agenda.")
         return
 
-    # Saudações → boas-vindas
+    # Saudações → menu (mantido)
     if tnorm_low in {"oi","olá","ola","bom dia","boa tarde","boa noite","hello","hi","menu"}:
         boas_vindas(numero, nome_atual); return
 
@@ -342,7 +363,7 @@ def processar_texto(numero: str, texto: str, nome_atual: str | None = None):
     if any(k in tnorm_low for k in ["humano","atendente","falar com atendente","pessoa"]):
         atender_humano(numero, nome_atual); return
 
-    # Fallback padrão
+    # Fallback padrão → repete menu
     nome_base = nome_atual or "Cliente"
     enviar_texto(numero, f"Não entendi sua mensagem, {nome_base}. Posso te ajudar por aqui 👇")
     boas_vindas(numero, nome_atual)
@@ -356,6 +377,7 @@ def responder_evento_mensagem(entry: dict) -> None:
     - Mensagens de texto
     - Cliques em botões (interactive/button_reply ou list_reply)
     - Salva/atualiza nome e registra logs no Google Sheets
+    - NOVO: SEMPRE envia boas-vindas (texto + botões) ao receber qualquer mensagem
     """
     try:
         changes = entry.get("changes", [])
@@ -366,17 +388,20 @@ def responder_evento_mensagem(entry: dict) -> None:
         if not msgs:
             return
 
-        msg = msgs[0]
+        msg    = msgs[0]
         numero = msg.get("from")
 
         # Perfil (nome do contato)
         contato = (value.get("contacts") or [{}])[0]
-        perfil = contato.get("profile", {}) if isinstance(contato, dict) else {}
-        nome = perfil.get("name")
+        perfil  = contato.get("profile", {}) if isinstance(contato, dict) else {}
+        nome    = perfil.get("name")
 
         # Cadastro + log de acesso
         _gs_upsert_contato(numero, nome=nome)
         _gs_log(numero, nome, "acesso", msg.get("type", ""))
+
+        # 🔹 SEMPRE: boas-vindas logo de cara (garante ordem correta Texto -> Botões)
+        boas_vindas(numero, nome)
 
         # Interativos
         if msg.get("type") == "interactive":
@@ -397,19 +422,20 @@ def responder_evento_mensagem(entry: dict) -> None:
             texto = msg.get("text", {}).get("body", "")
             processar_texto(numero, texto, nome); return
 
-        # Outros tipos → menu
-        boas_vindas(numero, nome)
+        # Outros tipos → só mantém menu (já enviado acima)
+        return
 
     except Exception as e:
         print("[responder_evento_mensagem] erro:", e)
 
 # =========================
-# Testes locais
+# Testes locais (opcional)
 # =========================
 if __name__ == "__main__":
     # Ex.: python responder.py 5511987654321 "oi"
     import sys
-    to = sys.argv[1] if len(sys.argv) > 1 else "5511999999999"
+    to   = sys.argv[1] if len(sys.argv) > 1 else "5511999999999"
     body = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else "oi"
     print(">> Teste local:", to, "|", body)
-    processar_texto(to, body, nome_atual=None)
+    boas_vindas(to, "Cliente Teste")
+    processar_texto(to, body, nome_atual="Cliente Teste")

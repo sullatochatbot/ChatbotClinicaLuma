@@ -4,6 +4,7 @@ import json
 import responder
 import os
 from dotenv import load_dotenv
+from datetime import datetime, timezone, timedelta
 
 # === Carrega variáveis do .env ===
 load_dotenv()
@@ -14,6 +15,11 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 
+# === Timezone fixo São Paulo (UTC-3, sem horário de verão) ===
+TZ_BR = timezone(timedelta(hours=-3))
+def hora_sp():
+    return datetime.now(TZ_BR).strftime("%Y-%m-%d %H:%M:%S -03:00")
+
 # === ROTA ÚNICA para Webhook (GET para verificação e POST para mensagens) ===
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
@@ -22,20 +28,20 @@ def webhook():
         token = request.args.get("hub.verify_token")
         challenge = request.args.get("hub.challenge")
 
-        print("📥 Verificação recebida:", mode)
-        print("🔐 Token recebido:", token)
+        print(f"[{hora_sp()}] 📥 Verificação recebida:", mode)
+        print(f"[{hora_sp()}] 🔐 Token recebido:", token)
 
         if mode == "subscribe" and token == VERIFY_TOKEN:
-            print("✅ Webhook verificado com sucesso!")
+            print(f"[{hora_sp()}] ✅ Webhook verificado com sucesso!")
             return challenge, 200
         else:
-            print("❌ Token inválido recebido:", token)
+            print(f"[{hora_sp()}] ❌ Token inválido recebido:", token)
             return "Token inválido", 403
 
     if request.method == "POST":
         try:
             data = request.get_json(force=True, silent=True) or {}
-            print("=== RECEBIDO DO META ===")
+            print(f"[{hora_sp()}] === RECEBIDO DO META ===")
             print(json.dumps(data, indent=2, ensure_ascii=False))
 
             # Envia cada entry para o responder.py
@@ -43,7 +49,7 @@ def webhook():
                 responder.responder_evento_mensagem(entry)
 
         except Exception as e:
-            print("❌ Erro no webhook:", str(e))
+            print(f"[{hora_sp()}] ❌ Erro no webhook:", str(e))
 
         return "EVENT_RECEIVED", 200
 
@@ -61,17 +67,17 @@ def send_text_message(phone_number, message):
         "text": {"body": message}
     }
 
-    print("📤 Enviando mensagem manual via API...")
+    print(f"[{hora_sp()}] 📤 Enviando mensagem manual via API...")
     print("📦 Payload:", json.dumps(payload, indent=2))
 
     try:
         response = requests.post(url, headers=headers, json=payload)
-        print("📬 Status:", response.status_code)
+        print(f"[{hora_sp()}] 📬 Status:", response.status_code)
         print("📨 Resposta:", response.text)
     except Exception as e:
-        print("❌ Erro ao enviar mensagem:", str(e))
+        print(f"[{hora_sp()}] ❌ Erro ao enviar mensagem:", str(e))
 
 # === Inicializa o servidor ===
 if __name__ == "__main__":
-    print("🚀 Servidor Flask iniciado em http://0.0.0.0:5000")
+    print(f"[{hora_sp()}] 🚀 Servidor Flask iniciado em http://0.0.0.0:5000")
     app.run(host="0.0.0.0", port=5000)
