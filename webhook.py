@@ -34,37 +34,18 @@ def webhook():
 
     if request.method == "POST":
         try:
-            data = request.get_json()
-            print("📩 JSON recebido:", json.dumps(data, indent=2))
+            data = request.get_json(force=True, silent=True) or {}
+            print("=== RECEBIDO DO META ===")
+            print(json.dumps(data, indent=2, ensure_ascii=False))
 
-            if not data:
-                print("⚠️ Nenhum dado recebido.")
-                return "ok", 200
+            # Envia cada entry para o responder.py
+            for entry in data.get("entry", []):
+                responder.responder_evento_mensagem(entry)
 
-            entry = data.get("entry", [])[0]
-            changes = entry.get("changes", [])[0]
-            value = changes.get("value", {})
-
-            if "messages" in value:
-                message_data = value["messages"][0]
-                print("🔍 message_data:", json.dumps(message_data, indent=2))
-
-                phone_number = message_data.get("from")
-                nome_cliente = value.get("contacts", [])[0].get("profile", {}).get("name")
-                print(f"🧾 Nome capturado do WhatsApp: {nome_cliente}")
-
-                print(f"📨 Enviando message_data completo para responder.gerar_resposta(): {json.dumps(message_data, indent=2)}")
-
-                if phone_number:
-                    responder.gerar_resposta(message_data, phone_number, nome_cliente)
-                else:
-                    print("⚠️ Número de telefone não encontrado.")
-            else:
-                print("⚠️ Nenhuma mensagem presente em 'value'.")
         except Exception as e:
             print("❌ Erro no webhook:", str(e))
 
-        return "ok", 200
+        return "EVENT_RECEIVED", 200
 
 # === Envio manual (opcional) ===
 def send_text_message(phone_number, message):
