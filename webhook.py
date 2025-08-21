@@ -63,7 +63,7 @@ def webhook():
 
             # Processa UMA message por vez (evita saudar 2x)
             for msg in messages:
-                if msg.get("type") != "text":
+                if msg.get("type") not in ("text", "interactive"):
                     continue
                 mid = msg.get("id")
                 if not mid:
