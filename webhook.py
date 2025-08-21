@@ -47,6 +47,7 @@ def webhook():
             return challenge, 200
         print(f"[{hora_sp()}] ❌ Token inválido:", token)
         return "Token inválido", 403
+
     # POST: eventos
     try:
         data = request.get_json(force=True, silent=True) or {}

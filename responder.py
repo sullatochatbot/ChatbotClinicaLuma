@@ -1,6 +1,6 @@
-# responder.py — Clínica Luma (melhorado)
+# responder.py — Clínica Luma (melhorado e corrigido)
 from __future__ import annotations
-import os, re, json, requests
+import os, re, json, requests, time
 from datetime import datetime, timezone, timedelta
 
 # ===== Env/const =====
@@ -82,6 +82,7 @@ def _gs_log(numero, nome, evento, detalhe="", origem="chatbot", especialidade=No
         _gs_historico.append_row([_tz_now_str(), numero, nome or "", evento, detalhe, origem, especialidade or ""], value_input_option="USER_ENTERED")
     except Exception as e:
         print("[GS] log erro:", e)
+
 # ===== WhatsApp helpers =====
 def _tem_credenciais(): return bool(ACCESS_TOKEN and PHONE_NUMBER_ID)
 
@@ -105,8 +106,6 @@ def enviar_botoes(para, corpo, botoes):
     return _post_wa({"messaging_product":"whatsapp","to":para,"type":"interactive","interactive":interactive})
 
 def enviar_typing(para, on=True):
-    # o Cloud API aceita "typing" como action; alguns ambientes exigem "sender_action".
-    # Se não suportar, ignorará silenciosamente.
     payload = {"messaging_product":"whatsapp","to":para,"type":"typing","typing":{"status":"on" if on else "off"}}
     return _post_wa(payload)
 
@@ -130,7 +129,7 @@ INFO_ENDERECO = (
     "Facebook: Clinica Luma"
 )
 
-# ===== Business hours + debounce =====
+# ===== Business hours + debounce + saudação controlada =====
 def esta_no_horario():
     a = datetime.now(TZ_BR)
     if a.weekday() < 5:  # seg–sex
@@ -139,12 +138,21 @@ def esta_no_horario():
         return 8 <= a.hour < 12
     return False
 
-ULTIMA_MSG_USUARIO = {}  # numero -> timestamp
+ULTIMA_MSG_USUARIO = {}  # numero -> ts
 def debounce_usuario(numero, janela_seg=5):
     agora = datetime.now(TZ_BR).timestamp()
     t_ant = ULTIMA_MSG_USUARIO.get(numero, 0)
     ULTIMA_MSG_USUARIO[numero] = agora
     return (agora - t_ant) < janela_seg  # True = ignora
+
+ULTIMA_SAUDACAO = {}  # numero -> ts
+def deve_saudacao(numero: str, janela_seg: int = 60) -> bool:
+    agora = time.time()
+    ultimo = ULTIMA_SAUDACAO.get(numero, 0)
+    if (agora - ultimo) > janela_seg:
+        ULTIMA_SAUDACAO[numero] = agora
+        return True
+    return False
 
 # ===== Fluxos =====
 def boas_vindas(numero, nome=None):
@@ -179,6 +187,7 @@ def iniciar_pre_agendamento(numero, nome=None):
     enviar_texto(numero, "Perfeito! Para agendarmos, informe por favor:\n"
                          "• Nome completo\n• Especialidade (ex.: Clínica Geral, Pediatria...)\n• Preferência de dia/horário")
     _gs_log(numero, nome, "pre_agendamento", "coletar_dados")
+
 # ===== Interpretação =====
 _RE_NOME = re.compile(r"(?:meu\s+nome\s+é|meu\s+nome\s*:?\s*|sou\s+|chamo-me\s+|eu\s+me\s+chamo\s+)(?P<nome>.+)$", re.IGNORECASE)
 def extrair_nome_de_texto(txt):
@@ -244,7 +253,7 @@ def processar_texto(numero, texto, nome_atual=None):
         enviar_texto(numero, f"Anotado: especialidade = {esp}. Qual dia/horário prefere?")
         return
 
-    # Saudações — NÃO repete menu (já enviado no entry)
+    # Saudações — NÃO repete menu (já enviado pelo entry)
     if low in {"oi","olá","ola","bom dia","boa tarde","boa noite","hello","hi","menu"}:
         return
 
@@ -286,10 +295,7 @@ def responder_evento_mensagem(entry: dict) -> None:
         _gs_upsert_contato(numero, nome=nome)
         _gs_log(numero, nome, "acesso", msg.get("type",""))
 
-        # Sempre: saudar + menu (uma vez)
-        boas_vindas(numero, nome)
-
-        # Interativo
+        # 👉 NÃO saudar em cliques de botão
         if msg.get("type") == "interactive":
             inter = msg.get("interactive", {})
             if inter.get("type") == "button_reply":
@@ -298,11 +304,15 @@ def responder_evento_mensagem(entry: dict) -> None:
             if inter.get("type") == "list_reply":
                 rep = inter.get("list_reply", {}); opt = rep.get("id") or rep.get("title")
                 if opt: processar_botao(numero, opt, nome); return
+            return
 
-        # Texto
+        # 👉 Texto: saudar só se ainda não saudou nessa janela (60s)
         if msg.get("type") == "text":
             body = msg.get("text", {}).get("body", "")
-            processar_texto(numero, body, nome); return
+            if deve_saudacao(numero):
+                boas_vindas(numero, nome)
+            processar_texto(numero, body, nome)
+            return
 
     except Exception as e:
         print("[responder_evento_mensagem] erro:", e)
