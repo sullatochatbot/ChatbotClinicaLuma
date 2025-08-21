@@ -343,9 +343,9 @@ def processar_texto(numero: str, texto: str, nome_atual: str | None = None):
         enviar_texto(numero, "Informe, por favor, a preferência de dia/horário para verificarmos a melhor agenda.")
         return
 
-    # Saudações → menu (mantido)
+    # Saudações: já enviamos boas-vindas no responder_evento_mensagem; não repetir
     if tnorm_low in {"oi","olá","ola","bom dia","boa tarde","boa noite","hello","hi","menu"}:
-        boas_vindas(numero, nome_atual); return
+        return
 
     # Compatibilidade com '1/2/3' (mesmo sem botões)
     if tnorm_low == "1":
