@@ -1,0 +1,8 @@
+:: FORCE_DEPLOY_CLINICA.txt
+:: Este arquivo força o deploy do ChatbotClinicaLuma no Render
+:: Basta dar dois cliques nele.
+
+cd /d "C:\Projetos\ChatbotClinicaLuma"
+git add .
+git commit -m "Force deploy Clinica"
+git push origin main
