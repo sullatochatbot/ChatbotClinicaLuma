@@ -1,46 +1,77 @@
-# ChatbotSullato
+# Clínica Luma — Chatbot (WhatsApp) + Google Sheets (Guia Completo)
 
-Este projeto é um Webhook em Flask para integração com a API do WhatsApp Business (Meta), criado para atender clientes da Sullato Micros e Vans de forma automatizada.
+Assistente de atendimento da **Clínica Luma** integrado ao **WhatsApp Cloud API (Meta)**, com backend leve em **Google Sheets** para cadastro, solicitações, deduplicação de pacientes, campanhas e logs.  
+Este arquivo é o **manual único** do projeto: explica a planilha, o servidor, as variáveis e o deploy.
 
-## ✅ Funcionalidades
+---
 
-- Recebe verificações da Meta via GET
-- Valida o token de segurança
-- Imprime o conteúdo das mensagens recebidas (POST)
-- Pronto para evolução futura com IA e NLP
+## 1) Visão geral do fluxo
 
-## 🚀 Como executar
+**Usuário → WhatsApp → Webhook (Flask) → Google Sheets**
 
-1. Crie e ative o ambiente virtual:
-# ChatbotSullato
+- Menu inicial: **Consulta** | **Exames** | **+ Opções**
+- Consulta/Exames → pergunta **Convênio ou Particular** → coleta:
+  - Nome completo, **CPF**, Data de nascimento (DD/MM/AAAA), **Endereço**, **Especialidade** (ou **Exame**)
+- + Opções → **Retorno de consulta** | **Resultado de exames**
+  - Pede **CPF**, busca no Sheets; se não achar, volta para a coleta completa
+- Fechamento padrão: **“Um atendente irá entrar em contato”**
+- Gravação no Sheets: `Pacientes`, `Solicitacoes`, `Pesquisa`, `Interacoes`, `Logs`
+- Base única para campanhas: `Clientes_Unicos` (deduplicado por CPF)
+- **Lista_Envio** diária: aniversários + campanhas (natal/ano novo/mães/pais)
 
-Este projeto é um Webhook em Flask para integração com a API do WhatsApp Business (Meta), criado para atender clientes da Sullato Micros e Vans de forma automatizada.
+---
 
-## ✅ Funcionalidades
+## 2) Google Sheets (backend da clínica)
 
-- Recebe verificações da Meta via GET
-- Valida o token de segurança
-- Imprime o conteúdo das mensagens recebidas (POST)
-- Pronto para evolução futura com IA e NLP
+### 2.1 Abas/colunas
+- **Pacientes**  
+  `cpf, nome, data_nasc, endereco, contato, tipo_atendimento, convenio_ou_particular, especialidade_ou_exame, origem, ts_criado, ts_atualizado`
 
-## 🚀 Como executar
+- **Solicitacoes**  
+  `ts, cpf, tipo (retorno|resultado|agendamento), detalhe, status_interno, observacoes`
 
-1. Crie e ative o ambiente virtual:
-python -m venv venv
-.\venv\Scripts\activate
+- **Pesquisa**  
+  `ts, cpf, tipo (especialidade|exame), texto_digitado`
 
-2. Instale as dependências:
-pip install flask
+- **Interacoes**  
+  `ts, cpf, evento, detalhe`
 
-3. Execute o servidor:
-python webhook.py
+- **Clientes_Unicos** (gerado pela dedup)  
+  `cpf, nome, data_nasc, endereco, contato, primeiro_registro, ultimo_registro, origem_mais_recente`  
+  → **1 linha por CPF** (pega o **último** registro por `ts_atualizado`)
 
-2. Instale as dependências:
-pip install flask
+- **Campanhas**  
+  `campanha, data (DD/MM ou VAR), descricao`  
+  → Ex.: `natal | 25/12`, `ano_novo | 01/01`, `dia_das_maes | VAR`, `dia_dos_pais | VAR`
 
-3. Execute o servidor:
-python webhook.py
+- **Lista_Envio** (gerada diariamente)  
+  `ts_gerado, cpf, nome, contato, motivo, data_ref, status_envio, template`  
+  → Evita duplicados por chave `cpf|motivo|data_ref`
 
-4. Acesse via navegador ou Postman:
-http://127.0.0.1:5000/webhook?hub.mode=subscribe&hub.challenge=12345&hub.verify_token=sullato_token_seguro
+- **Logs**  
+  `ts, nivel, origem, acao, detalhe, cpf, chave, status`
+
+### 2.2 Regras de dados
+- **CPF**: somente dígitos (11)  
+- **Data de nascimento**: `DD/MM/AAAA`  
+- **Timestamps**: `YYYY-MM-DD HH:MM:SS`  
+- **Contato**: telefone/WhatsApp ou e-mail (texto livre)
+
+### 2.3 Automação (Apps Script)
+No editor do Apps Script da planilha há um menu **“Clínica Luma”** com:
+
+- **⚡ Instalação completa (1 clique)** → roda tudo:
+  - cria/ajusta abas e formatos
+  - insere campanhas padrão
+  - executa **dedup** (`Clientes_Unicos`)
+  - cria **Lista_Envio** do dia
+  - recria **acionadores** (08:00 dedup / 09:00 lista)
+- Ações individuais: `setupClinicaSheets`, `criarCampanhasPadrao`, `atualizarClientesUnicos`, `gerarListaEnvioHoje`, `recriarAcionadores`
+- Tudo é registrado em **Logs**
+
+> **Opcional**: API **Web App** do Apps Script (`doPost`) protegida por `API_SECRET`, caso prefira postar direto na planilha em vez de usar a Google Sheets API.
+
+---
+
+## 3) Estrutura recomendada do repositório
 

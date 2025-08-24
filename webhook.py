@@ -1,6 +1,6 @@
 from flask import Flask, request
 import json, os, requests
-import responder
+import responder_clinica as responder  # <<< usa o responder da CLÍNICA
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 
@@ -9,8 +9,16 @@ load_dotenv()
 app = Flask(__name__)
 
 VERIFY_TOKEN    = os.getenv("VERIFY_TOKEN")
-ACCESS_TOKEN    = os.getenv("ACCESS_TOKEN")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+# Agora aceita os nomes novos (Opção A) e mantém compatibilidade com os antigos:
+ACCESS_TOKEN    = os.getenv("WA_ACCESS_TOKEN") or os.getenv("ACCESS_TOKEN")
+PHONE_NUMBER_ID = os.getenv("WA_PHONE_NUMBER_ID") or os.getenv("PHONE_NUMBER_ID")
+
+if not VERIFY_TOKEN:
+    print("⚠️ VERIFY_TOKEN não definido no ambiente (.env)")
+if not ACCESS_TOKEN:
+    print("⚠️ WA_ACCESS_TOKEN/ACCESS_TOKEN não definido no ambiente (.env)")
+if not PHONE_NUMBER_ID:
+    print("⚠️ WA_PHONE_NUMBER_ID/PHONE_NUMBER_ID não definido no ambiente (.env)")
 
 # === Timezone SP (UTC-3) ===
 TZ_BR = timezone(timedelta(hours=-3))
@@ -33,7 +41,7 @@ def _mark_processed(ids):
 def health():
     return {"status": "ok", "time": hora_sp()}, 200
 
-# === GET: verificação webhook ===
+# === GET/POST: webhook ===
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
@@ -48,7 +56,7 @@ def webhook():
         print(f"[{hora_sp()}] ❌ Token inválido:", token)
         return "Token inválido", 403
 
-    # POST: eventos
+    # POST: eventos do WhatsApp
     try:
         data = request.get_json(force=True, silent=True) or {}
         print(f"[{hora_sp()}] === RECEBIDO DO META ===")
@@ -74,6 +82,7 @@ def webhook():
                     continue
                 _mark_processed([mid])
 
+                # preserva o formato que o 'responder_clinica' espera
                 single_entry = {
                     "changes": [{
                         "value": {
@@ -82,7 +91,10 @@ def webhook():
                         }
                     }]
                 }
-                responder.responder_evento_mensagem(single_entry)
+                try:
+                    responder.responder_evento_mensagem(single_entry)
+                except Exception as e:
+                    print(f"[{hora_sp()}] ⚠️ Erro no responder_clinica: {e}")
 
     except Exception as e:
         print(f"[{hora_sp()}] ❌ Erro no webhook: {e}")
@@ -93,10 +105,15 @@ def webhook():
 def send_text_message(phone_number, message):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    payload = {"messaging_product":"whatsapp","to":phone_number,"type":"text","text":{"body":message}}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "text",
+        "text": {"body": message}
+    }
     print(f"[{hora_sp()}] 📤 Enviando manual...")
     try:
-        r = requests.post(url, headers=headers, json=payload)
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
         print(f"[{hora_sp()}] 📬 Status:", r.status_code, r.text)
     except Exception as e:
         print(f"[{hora_sp()}] ❌ Erro ao enviar:", e)
