@@ -51,8 +51,13 @@ def _ensure_ws(ss, title, headers):
             ws.update(f"A1:{chr(64+len(headers))}1", [headers])
 
 # ====== Utilitários ===========================================================
+# ====== Ajuste de fuso horário ===============================================
+from datetime import datetime
+import pytz
+
 def _hora_sp():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S -03:00")
+    tz = pytz.timezone("America/Sao_Paulo")
+    return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
 
 def _first_name(fullname: str) -> str:
     n = (fullname or "").strip()
@@ -482,6 +487,10 @@ def _continue_form(ss, wa_to, ses, user_text):
     # Finaliza (upsert paciente + solicitações + fechamento)
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
+
+    # fechamento do fluxo
     _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
-    # reseta a sessão, mas NÃO reenvia o menu de botões
+    # reseta a sessão, mas NÃO reenvia menu
     SESS[wa_to] = {"route":"root","stage":"","data":{}}
+    return
+
