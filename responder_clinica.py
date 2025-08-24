@@ -1,13 +1,17 @@
-# responder_clinica.py — Fluxo final Clínica Luma
+# responder_clinica.py — Fluxo final Clínica Luma (atualizado)
 import os, re, json, requests
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
-# ====== ENV do WhatsApp / Sheets ======
-WA_ACCESS_TOKEN      = os.getenv("WA_ACCESS_TOKEN", "").strip()
-WA_PHONE_NUMBER_ID   = os.getenv("WA_PHONE_NUMBER_ID", "").strip()
-CLINICA_SHEET_ID     = os.getenv("CLINICA_SHEET_ID", "").strip()
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+# ====== ENV do WhatsApp / Sheets / Links ======
+WA_ACCESS_TOKEN        = os.getenv("WA_ACCESS_TOKEN", "").strip()
+WA_PHONE_NUMBER_ID     = os.getenv("WA_PHONE_NUMBER_ID", "").strip()
+CLINICA_SHEET_ID       = os.getenv("CLINICA_SHEET_ID", "").strip()
+GOOGLE_CREDENTIALS_JSON= os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+
+NOME_EMPRESA           = os.getenv("NOME_EMPRESA", "Clínica Luma").strip()
+LINK_SITE              = os.getenv("LINK_SITE", "").strip()
+LINK_INSTAGRAM         = os.getenv("LINK_INSTAGRAM", "").strip()
 
 GRAPH_URL = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages" if WA_PHONE_NUMBER_ID else ""
 HEADERS   = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}", "Content-Type": "application/json"}
@@ -18,7 +22,7 @@ from google.oauth2.service_account import Credentials
 
 def _gspread():
     if not CLINICA_SHEET_ID or not GOOGLE_CREDENTIALS_JSON:
-        raise RuntimeError("Config Sheets ausente. Defina CLINICA_SHEET_ID e GOOGLE_CREDENTIALS_JSON no .env")
+        raise RuntimeError("Config Sheets ausente. Defina CLINICA_SHEET_ID e GOOGLE_CREDENTIALS_JSON no ambiente.")
     info = json.loads(GOOGLE_CREDENTIALS_JSON)
     creds = Credentials.from_service_account_info(info, scopes=[
         "https://www.googleapis.com/auth/spreadsheets",
@@ -26,10 +30,9 @@ def _gspread():
     ])
     gc = gspread.authorize(creds)
     ss = gc.open_by_key(CLINICA_SHEET_ID)
-    # garante as abas/headers
-    _ensure_ws(ss, "Pacientes", ["cpf","nome","nasc","endereco","forma","tipo","created_at"])
+    _ensure_ws(ss, "Pacientes",    ["cpf","nome","nasc","endereco","forma","tipo","created_at"])
     _ensure_ws(ss, "Solicitacoes", ["timestamp","tipo","forma","cpf","nome","nasc","especialidade","exame","endereco"])
-    _ensure_ws(ss, "Pesquisa", ["timestamp","cpf","nome","nasc","endereco","especialidade","exame"])
+    _ensure_ws(ss, "Pesquisa",     ["timestamp","cpf","nome","nasc","endereco","especialidade","exame"])
     return ss
 
 def _ensure_ws(ss, title, headers):
@@ -44,13 +47,19 @@ def _ensure_ws(ss, title, headers):
             ws.resize(rows=max(ws.row_count, 1000), cols=len(headers))
             ws.update(f"A1:{chr(64+len(headers))}1", [headers])
 
+# ====== Util ======
 def _hora_sp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S -03:00")
+
+def _first_name(fullname: str) -> str:
+    n = (fullname or "").strip()
+    return n.split()[0] if n else ""
 
 def _send_text(to, text):
     if not (WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID):
         print("[MOCK→WA TEXT]", to, text); return
-    payload = {"messaging_product":"whatsapp","to":to,"type":"text","text":{"preview_url":False,"body":text[:4096]}}
+    payload = {"messaging_product":"whatsapp","to":to,"type":"text",
+               "text":{"preview_url":False,"body":text[:4096]}}
     r = requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
     if r.status_code >= 300:
         print("[WA ERROR]", r.status_code, r.text)
@@ -74,16 +83,36 @@ def _send_buttons(to, body, buttons):
         print("[WA ERROR]", r.status_code, r.text)
 
 # ====== UI ======
-WELCOME = "Bem-vindo à Clínica Luma! Escolha uma opção abaixo para começar."
+WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
+def _welcome_named(name: str) -> str:
+    fn = _first_name(name)
+    if fn:
+        return f"Bem-vindo(a), {fn}! Este é o atendimento virtual da {NOME_EMPRESA}. Escolha uma opção:"
+    return WELCOME_GENERIC
+
 BTN_ROOT = [
     {"id":"op_consulta","title":"Consulta"},
     {"id":"op_exames","title":"Exames"},
     {"id":"op_mais","title":"+ Opções"},
 ]
-BTN_MAIS = [
-    {"id":"op_retorno","title":"Retorno de consulta"},
-    {"id":"op_resultado","title":"Resultado de exames"},
-    {"id":"op_pesquisa","title":"Pesquisa"},
+
+# Primeiro nível de “+ Opções”
+BTN_MAIS_1 = [
+    {"id":"op_endereco","title":"Endereço"},
+    {"id":"op_contato","title":"Contato"},
+    {"id":"op_mais2","title":"+ Opções"},
+]
+# Segundo nível (“o que você procura?”)
+BTN_MAIS_2 = [
+    {"id":"op_especialidade","title":"Especialidade"},
+    {"id":"op_exames_atalho","title":"Exames"},
+    {"id":"op_voltar_root","title":"Voltar"},
+]
+
+# Botões para “Convênio ou Particular?”
+BTN_FORMA = [
+    {"id":"forma_convenio","title":"Convênio"},
+    {"id":"forma_particular","title":"Particular"},
 ]
 
 # ====== Validadores ======
@@ -131,7 +160,7 @@ def _add_pesquisa(ss, data: Dict[str,Any]):
            data.get("endereco",""), data.get("especialidade",""), data.get("exame","")]
     ws.append_row(row, value_input_option="USER_ENTERED")
 
-# ====== Sessão em memória (simples) ======
+# ====== Sessão simples ======
 SESS = {}  # wa_id -> {"route": str, "stage": str, "data": dict}
 
 # Campos por fluxo
@@ -189,46 +218,24 @@ def _normalize(key, value) -> str:
         if "part" in low:  return "Particular"
     return v
 
+def _ask_forma(wa_to):
+    _send_buttons(wa_to, "Convênio ou Particular?", BTN_FORMA)
+
 # ====== Entrada principal ======
 def responder_evento_mensagem(entry: dict) -> None:
-    ss = _gspread()  # conecta (cria abas se faltar)
+    ss = _gspread()
     value    = (entry.get("changes") or [{}])[0].get("value", {})
     messages = value.get("messages", [])
     contacts = value.get("contacts", [])
     if not messages or not contacts: return
 
     msg     = messages[0]
-    wa_to   = contacts[0].get("wa_id") or msg.get("from")  # fallback
+    wa_to   = contacts[0].get("wa_id") or msg.get("from")
+    profile_name = (contacts[0].get("profile") or {}).get("name") or ""
+
     mtype   = msg.get("type")
 
-    # Início / Menu:
-    if mtype == "text":
-        body = (msg.get("text", {}).get("body") or "").strip()
-        low  = body.lower()
-
-        if low in {"oi","ola","olá","menu","iniciar","começar","start","+ opções","+ opcoes","+ opcoes","inicio","início"}:
-            SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
-            _send_buttons(wa_to, WELCOME, BTN_ROOT)
-            return
-
-        # Se estiver em coleta
-        ses = SESS.get(wa_to)
-        if ses and ses.get("route") in {"consulta","exames","retorno","resultado","pesquisa"}:
-            _continue_form(ss, wa_to, ses, body)
-            return
-
-        # Atalhos simples: se usuário digitou "consulta"/"exame" ao invés do botão
-        if "consulta" in low:
-            SESS[wa_to] = {"route":"consulta", "stage":"forma", "data":{"tipo":"consulta"}}
-            _send_text(wa_to, CONSULTA_FIELDS[0][1]); return
-        if "exame" in low:
-            SESS[wa_to] = {"route":"exames", "stage":"forma", "data":{"tipo":"exames"}}
-            _send_text(wa_to, EXAMES_FIELDS[0][1]); return
-
-        # Sem contexto → mostra menu
-        _send_buttons(wa_to, WELCOME, BTN_ROOT)
-        return
-
+    # ==== BOTÕES / INTERACTIVE ====
     if mtype == "interactive":
         inter = msg.get("interactive", {})
         itype = inter.get("type")
@@ -240,37 +247,122 @@ def responder_evento_mensagem(entry: dict) -> None:
             bid = None
 
         if not bid:
-            _send_buttons(wa_to, WELCOME, BTN_ROOT); return
+            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT); return
 
         # Botões de primeiro nível
         if bid in {"op_consulta","Consulta"}:
             SESS[wa_to] = {"route":"consulta", "stage":"forma", "data":{"tipo":"consulta"}}
-            _send_text(wa_to, CONSULTA_FIELDS[0][1]); return
+            _ask_forma(wa_to); return
 
         if bid in {"op_exames","Exames"}:
             SESS[wa_to] = {"route":"exames", "stage":"forma", "data":{"tipo":"exames"}}
-            _send_text(wa_to, EXAMES_FIELDS[0][1]); return
+            _ask_forma(wa_to); return
 
         if bid in {"op_mais","+ Opções","+ Opcoes"}:
             SESS[wa_to] = {"route":"mais", "stage":"", "data":{}}
-            _send_buttons(wa_to, "Outras opções:", BTN_MAIS); return
+            _send_buttons(wa_to, "Outras opções:", BTN_MAIS_1); return
 
-        if bid in {"op_retorno","Retorno de consulta"}:
-            SESS[wa_to] = {"route":"retorno", "stage":"cpf", "data":{"tipo":"retorno"}}
-            _send_text(wa_to, "Informe seu CPF (apenas números):"); return
+        # Botões do “+ Opções” (nível 1)
+        if bid == "op_endereco":
+            txt = "Nosso endereço/contato:\n"
+            if LINK_SITE:      txt += f"• Site: {LINK_SITE}\n"
+            if LINK_INSTAGRAM: txt += f"• Instagram: {LINK_INSTAGRAM}\n"
+            _send_text(wa_to, txt.strip() or "Em breve informaremos endereço/contato.")
+            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
+            return
 
-        if bid in {"op_resultado","Resultado de exames"}:
-            SESS[wa_to] = {"route":"resultado", "stage":"cpf", "data":{"tipo":"resultado"}}
-            _send_text(wa_to, "Informe seu CPF (apenas números):"); return
+        if bid == "op_contato":
+            txt = "Fale conosco:\n"
+            if LINK_SITE:      txt += f"• Site: {LINK_SITE}\n"
+            if LINK_INSTAGRAM: txt += f"• Instagram: {LINK_INSTAGRAM}\n"
+            _send_text(wa_to, txt.strip() or "Em breve disponibilizaremos os canais de contato.")
+            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
+            return
 
-        if bid in {"op_pesquisa","Pesquisa"}:
-            ses = {"route":"pesquisa", "stage":"", "data":{}}
+        if bid == "op_mais2":
+            _send_buttons(wa_to, "O que você procura?", BTN_MAIS_2); return
+
+        if bid == "op_voltar_root":
+            SESS[wa_to] = {"route":"root","stage":"","data":{}}
+            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT); return
+
+        # Atalhos do submenu para pesquisa
+        if bid == "op_especialidade":
+            ses = {"route":"pesquisa", "stage":"especialidade", "data":{}}
             SESS[wa_to] = ses
-            _start_pesquisa(wa_to, ses); return
+            _send_text(wa_to, "Qual especialidade você procura?"); return
+
+        if bid == "op_exames_atalho":
+            ses = {"route":"pesquisa", "stage":"exame", "data":{}}
+            SESS[wa_to] = ses
+            _send_text(wa_to, "Qual exame você procura?"); return
+
+        # Botões da forma (Convênio/Particular)
+        if bid == "forma_convenio":
+            ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
+            ses["data"]["forma"] = "Convênio"
+            _after_forma_prompt_next(wa_to, ses); return
+
+        if bid == "forma_particular":
+            ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
+            ses["data"]["forma"] = "Particular"
+            _after_forma_prompt_next(wa_to, ses); return
 
         # fallback
-        _send_buttons(wa_to, WELCOME, BTN_ROOT)
+        _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
         return
+
+    # ==== TEXTO ====
+    if mtype == "text":
+        body = (msg.get("text", {}).get("body") or "").strip()
+        low  = body.lower()
+
+        # Se estiver em coleta → continua
+        ses = SESS.get(wa_to)
+        if ses and ses.get("route") in {"consulta","exames","retorno","resultado","pesquisa"} and ses.get("stage"):
+            _continue_form(ss, wa_to, ses, body)
+            return
+
+        # Digitar "consulta" / "exame" como atalho
+        if "consulta" in low:
+            SESS[wa_to] = {"route":"consulta", "stage":"forma", "data":{"tipo":"consulta"}}
+            _ask_forma(wa_to); return
+        if "exame" in low:
+            SESS[wa_to] = {"route":"exames", "stage":"forma", "data":{"tipo":"exames"}}
+            _ask_forma(wa_to); return
+        if low in {"+ opções","+ opcoes","+opcoes","+opções","opções","opcoes"}:
+            SESS[wa_to] = {"route":"mais", "stage":"", "data":{}}
+            _send_buttons(wa_to, "Outras opções:", BTN_MAIS_1); return
+
+        # Qualquer outra mensagem → boas-vindas personalizada + menu
+        _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
+        return
+
+# ====== Auxiliares de fluxo ======
+def _after_forma_prompt_next(wa_to, ses):
+    # Avança para o próximo campo após escolher a forma
+    route = ses.get("route")
+    data  = ses.get("data", {})
+    fields = CONSULTA_FIELDS if route=="consulta" else EXAMES_FIELDS if route=="exames" else None
+    if not fields:
+        # pode ser retorno/resultado pedindo forma após não encontrar CPF
+        fields = [("forma","Convênio ou Particular?"),("nome","Informe seu nome completo:"),
+                  ("cpf","Informe seu CPF (apenas números):"),("nasc","Data de nascimento (DD/MM/AAAA):"),
+                  ("especialidade" if route=="retorno" else "exame","Qual especialidade/exame?"),
+                  ("endereco","Endereço (rua, nº, bairro, CEP, cidade/UF):")]
+
+    pending = [(k,q) for (k,q) in fields if not data.get(k)]
+    if pending:
+        next_key, question = pending[0]
+        # se por algum motivo o próximo também for 'forma', repete botão
+        if next_key == "forma":
+            _ask_forma(wa_to)
+        else:
+            SESS[wa_to]["stage"] = next_key
+            _send_text(wa_to, question)
+    else:
+        # nada pendente — força finalizar no próximo handler
+        SESS[wa_to]["stage"] = None
 
 def _start_pesquisa(wa_to, ses):
     needed = ["nome","cpf","nasc","endereco"]
@@ -307,7 +399,7 @@ def _continue_form(ss, wa_to, ses, user_text):
             return
         else:
             ses["stage"] = "forma"
-            _send_text(wa_to, "Não encontramos seu cadastro. Informe: Convênio ou Particular?")
+            _ask_forma(wa_to)
             return
 
     # Campos por fluxo
@@ -342,14 +434,22 @@ def _continue_form(ss, wa_to, ses, user_text):
 
     # Consulta/Exames/Retorno completo: valida e avança
     if stage:
-        err = _validate(stage, user_text)
-        if err: _send_text(wa_to, err); return
-        data[stage] = _normalize(stage, user_text)
+        # 'forma' agora é escolhido via botão — se usuário digitou, ainda aceitamos
+        if stage == "forma" and user_text:
+            data["forma"] = _normalize("forma", user_text)
+        else:
+            err = _validate(stage, user_text)
+            if err: _send_text(wa_to, err); return
+            data[stage] = _normalize(stage, user_text)
 
     pending = [(k,q) for (k,q) in fields if not data.get(k)]
     if pending:
-        ses["stage"] = pending[0][0]
-        _send_text(wa_to, pending[0][1])
+        next_key, question = pending[0]
+        ses["stage"] = next_key
+        if next_key == "forma":
+            _ask_forma(wa_to)
+        else:
+            _send_text(wa_to, question)
         return
 
     # Finaliza
