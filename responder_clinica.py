@@ -247,7 +247,7 @@ def _fields_for(route: str, data: Dict[str,Any]):
 
 # ====== Fechamentos ===========================================================
 FECHAMENTO = {
-    "consulta":  "✅ Obrigado! Um atendente irá entrar em contato com você para confirmar valores e agendar a data da consulta.",
+    "consulta":  "✅ Obrigado! Um atendente irá entrar em contato com você para confirmação e agendar a data da consulta.",
     "exames":    "✅ Perfeito! Um atendente vai falar com você para agendar o exame.",
     "retorno":   "🧑‍⚕️ Um atendente vai entrar em contato com você para orientar seu retorno.",
     "resultado": "🧑‍⚕️ Um atendente vai entrar em contato com você sobre seu resultado.",
@@ -341,15 +341,13 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_text(wa_to, "Qual exame você procura?"); return
 
         # Botões de forma
-        if bid == "forma_convenio":
+        if bid in {"forma_convenio","forma_particular"}:
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
-            ses["data"]["forma"] = "Convênio"
-            SESS[wa_to] = ses
-            _after_forma_prompt_next(wa_to, ses); return
-
-        if bid == "forma_particular":
-            ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
-            ses["data"]["forma"] = "Particular"
+            # Se o usuário clicou "Convênio/Particular" fora de um fluxo (clique tardio),
+            # iniciamos automaticamente o fluxo de CONSULTA.
+            if ses.get("route") not in {"consulta","exames","retorno","resultado","pesquisa"}:
+                ses = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
+            ses["data"]["forma"] = "Convênio" if bid == "forma_convenio" else "Particular"
             SESS[wa_to] = ses
             _after_forma_prompt_next(wa_to, ses); return
 
@@ -484,6 +482,6 @@ def _continue_form(ss, wa_to, ses, user_text):
     # Finaliza (upsert paciente + solicitações + fechamento)
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
-    _send_text(wa_to, FECHAMENTO[route] if route in FECHAMENTO else "Solicitação registrada.")
+    _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
+    # reseta a sessão, mas NÃO reenvia o menu de botões
     SESS[wa_to] = {"route":"root","stage":"","data":{}}
-    _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
