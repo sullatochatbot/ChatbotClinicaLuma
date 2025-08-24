@@ -317,6 +317,21 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_text(wa_to, txt.strip() or "Em breve informaremos endereço/contato.")
             _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
             return
+        
+        # >>> BLOCO ENDEREÇO / CONTATO (Clínica Luma) <<<
+        if bid == "op_endereco":
+            txt = (
+                "📍 *Endereço*\n"
+                "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n\n"
+                "🌐 *Site*: https://www.lumaclinicadafamilia.com.br\n"
+                "📷 *Instagram*: https://www.instagram.com/luma_clinicamedica\n"
+                "📘 *Facebook*: Clinica Luma\n"
+                "☎️ *Telefone*: (11) 2043-9937\n"
+                "💬 *WhatsApp*: https://wa.me/5511968501810\n"
+            )
+            _send_text(wa_to, txt)
+            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
+            return
 
         if bid == "op_contato":
             txt = "Fale conosco:\n"
