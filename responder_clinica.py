@@ -1,9 +1,10 @@
-# responder_clinica.py — Fluxo final Clínica Luma (com convênio e particular corrigidos)
+# responder_clinica.py — Fluxo final Clínica Luma (com CEP + ViaCEP + timezone zoneinfo)
 # ==============================================================================
 
 # ====== Imports & Tipagem =====================================================
 import os, re, json, requests
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional
 
 # ====== Variáveis de Ambiente (WhatsApp / Sheets / Links) =====================
@@ -13,8 +14,8 @@ CLINICA_SHEET_ID        = os.getenv("CLINICA_SHEET_ID", "").strip()
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
 
 NOME_EMPRESA   = os.getenv("NOME_EMPRESA", "Clínica Luma").strip()
-LINK_SITE      = os.getenv("LINK_SITE", "").strip()
-LINK_INSTAGRAM = os.getenv("LINK_INSTAGRAM", "").strip()
+LINK_SITE      = os.getenv("LINK_SITE", "https://www.lumaclinicadafamilia.com.br").strip()
+LINK_INSTAGRAM = os.getenv("LINK_INSTAGRAM", "https://www.instagram.com/luma_clinicamedica").strip()
 
 GRAPH_URL = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages" if WA_PHONE_NUMBER_ID else ""
 HEADERS   = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}", "Content-Type": "application/json"}
@@ -50,14 +51,51 @@ def _ensure_ws(ss, title, headers):
             ws.resize(rows=max(ws.row_count, 1000), cols=len(headers))
             ws.update(f"A1:{chr(64+len(headers))}1", [headers])
 
-# ====== Utilitários ===========================================================
 # ====== Ajuste de fuso horário ===============================================
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 def _hora_sp():
     return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
 
+# ====== CEP + ViaCEP ==========================================================
+# >>> BLOCO CEP AUTOCOMPLETE (helpers) <<<
+_RE_CEP = re.compile(r"^\d{8}$")
+
+def _cep_ok(s: str) -> bool:
+    s = re.sub(r"\D", "", s or "")
+    return bool(_RE_CEP.match(s))
+
+def _via_cep(cep: str) -> Optional[dict]:
+    cep = re.sub(r"\D", "", cep or "")
+    try:
+        r = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=10)
+        if r.status_code >= 300:
+            return None
+        j = r.json()
+        if j.get("erro"):
+            return None
+        return j
+    except Exception:
+        return None
+
+def _montar_endereco_via_cep(cep: str, numero: str, complemento: str = "") -> Optional[str]:
+    data = _via_cep(cep)
+    if not data:
+        return None
+    log = (data.get("logradouro") or "").strip()
+    bai = (data.get("bairro") or "").strip()
+    cid = (data.get("localidade") or "").strip()
+    uf  = (data.get("uf") or "").strip()
+    cep_num = re.sub(r"\D", "", cep or "")
+    cep_fmt = f"{cep_num[:5]}-{cep_num[5:]}" if len(cep_num) == 8 else cep_num
+    partes = []
+    if log: partes.append(log)
+    if numero: partes.append(f", {numero}")
+    if complemento: partes.append(f" - {complemento}")
+    if bai: partes.append(f" - {bai}")
+    if cid or uf: partes.append(f" - {cid}/{uf}".replace("//","/"))
+    if cep_fmt: partes.append(f" – CEP {cep_fmt}")
+    return "".join(partes).strip()
+
+# ====== Utilitários ===========================================================
 def _first_name(fullname: str) -> str:
     n = (fullname or "").strip()
     return n.split()[0] if n else ""
@@ -109,6 +147,7 @@ BTN_MAIS_1 = [
     {"id":"op_contato","title":"Contato"},
     {"id":"op_mais2","title":"+ Opções"},
 ]
+
 # “+ Opções” — nível 2 (o que procura)
 BTN_MAIS_2 = [
     {"id":"op_especialidade","title":"Especialidade"},
@@ -121,7 +160,6 @@ BTN_FORMA = [
     {"id":"forma_convenio","title":"Convênio"},
     {"id":"forma_particular","title":"Particular"},
 ]
-
 # ====== Validadores e Normalizadores =========================================
 _RE_CPF   = re.compile(r"\D")
 _RE_DATE  = re.compile(r"^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/\d{4}$")
@@ -137,12 +175,16 @@ def _validate(key, value, *, data=None) -> Optional[str]:
         if not _date_ok(v):
             return "Data inválida. Use o formato DD/MM/AAAA."
     if key == "convenio":
-        # só obrigatório quando forma == Convênio
         if (data or {}).get("forma") == "Convênio" and not v:
             return "Informe o nome do seu convênio."
-        # se for Particular, não exigimos
         return None
-    if key in {"forma","nome","especialidade","exame","endereco"} and not v:
+    if key == "cep":
+        if not _cep_ok(v):
+            return "CEP inválido. Envie 8 dígitos (ex: 03878000)."
+    if key == "numero":
+        if not v:
+            return "Informe o número."
+    if key in {"forma","nome","especialidade","exame"} and not v:
         return "Este campo é obrigatório."
     return None
 
@@ -203,38 +245,44 @@ def _add_pesquisa(ss, data: Dict[str,Any]):
 SESS: Dict[str, Dict[str, Any]] = {}  # wa_id -> {"route": str, "stage": str, "data": dict}
 
 # ====== Campos (dinâmicos conforme forma) =====================================
+# >>> BLOCO FLUXO CONSULTA (usar CEP) <<<
+def _comuns_consulta(data):
+    campos = [("forma","Convênio ou Particular?")]
+    if data.get("forma") == "Convênio":
+        campos.append(("convenio","Qual é o nome do seu convênio?"))
+    campos += [
+        ("nome","Informe seu nome completo:"),
+        ("cpf","Informe seu CPF (apenas números):"),
+        ("nasc","Data de nascimento (DD/MM/AAAA):"),
+        ("especialidade","Qual especialidade você procura?"),
+        ("cep","Informe seu CEP (apenas números, ex: 03878000):"),
+        ("numero","Informe o número:"),
+        ("complemento","Complemento (ou responda 'sem'):"),
+    ]
+    return campos
+
+# >>> BLOCO FLUXO EXAMES (usar CEP) <<<
+def _comuns_exames(data):
+    campos = [("forma","Convênio ou Particular?")]
+    if data.get("forma") == "Convênio":
+        campos.append(("convenio","Qual é o nome do seu convênio?"))
+    campos += [
+        ("nome","Informe seu nome completo:"),
+        ("cpf","Informe seu CPF (apenas números):"),
+        ("nasc","Data de nascimento (DD/MM/AAAA):"),
+        ("exame","Qual exame você procura?"),
+        ("cep","Informe seu CEP (apenas números, ex: 03878000):"),
+        ("numero","Informe o número:"),
+        ("complemento","Complemento (ou responda 'sem'):"),
+    ]
+    return campos
+
 def _fields_for(route: str, data: Dict[str,Any]):
     """Retorna a lista de (campo, pergunta) dinâmica para cada fluxo."""
-    def _comuns_consulta():
-        campos = [("forma","Convênio ou Particular?")]
-        if data.get("forma") == "Convênio":
-            campos.append(("convenio","Qual é o nome do seu convênio?"))
-        campos += [
-            ("nome","Informe seu nome completo:"),
-            ("cpf","Informe seu CPF (apenas números):"),
-            ("nasc","Data de nascimento (DD/MM/AAAA):"),
-            ("especialidade","Qual especialidade você procura?"),
-            ("endereco","Endereço (rua, nº, bairro, CEP, cidade/UF):"),
-        ]
-        return campos
-
-    def _comuns_exames():
-        campos = [("forma","Convênio ou Particular?")]
-        if data.get("forma") == "Convênio":
-            campos.append(("convenio","Qual é o nome do seu convênio?"))
-        campos += [
-            ("nome","Informe seu nome completo:"),
-            ("cpf","Informe seu CPF (apenas números):"),
-            ("nasc","Data de nascimento (DD/MM/AAAA):"),
-            ("exame","Qual exame você procura?"),
-            ("endereco","Endereço (rua, nº, bairro, CEP, cidade/UF):"),
-        ]
-        return campos
-
     if route == "consulta":
-        return _comuns_consulta()
+        return _comuns_consulta(data)
     if route == "exames":
-        return _comuns_exames()
+        return _comuns_exames(data)
     if route in {"retorno","resultado"}:
         campos = [("forma","Convênio ou Particular?")]
         if data.get("forma") == "Convênio":
@@ -266,8 +314,11 @@ def _prompt_basico(key):
         "nasc":"Data de nascimento (DD/MM/AAAA):",
         "endereco":"Endereço (rua, nº, bairro, CEP, cidade/UF):",
         "convenio":"Qual é o nome do seu convênio?",
+        # novos:
+        "cep":"Informe seu CEP (apenas números, ex: 03878000):",
+        "numero":"Informe o número:",
+        "complemento":"Complemento (apto, bloco, sala) – se não houver, responda 'sem':",
     }.get(key, "Informe o dado solicitado:")
-
 # ====== Handler principal (Webhook) ===========================================
 def responder_evento_mensagem(entry: dict) -> None:
     ss = _gspread()
@@ -311,20 +362,12 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # “+ Opções” nível 1
         if bid == "op_endereco":
-            txt = "Nosso endereço/contato:\n"
-            if LINK_SITE:      txt += f"• Site: {LINK_SITE}\n"
-            if LINK_INSTAGRAM: txt += f"• Instagram: {LINK_INSTAGRAM}\n"
-            _send_text(wa_to, txt.strip() or "Em breve informaremos endereço/contato.")
-            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
-            return
-        
-        # >>> BLOCO ENDEREÇO / CONTATO (Clínica Luma) <<<
-        if bid == "op_endereco":
+            # >>> BLOCO ENDEREÇO / CONTATO (Clínica Luma) <<<
             txt = (
                 "📍 *Endereço*\n"
                 "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n\n"
-                "🌐 *Site*: https://www.lumaclinicadafamilia.com.br\n"
-                "📷 *Instagram*: https://www.instagram.com/luma_clinicamedica\n"
+                f"🌐 *Site*: {LINK_SITE}\n"
+                f"📷 *Instagram*: {LINK_INSTAGRAM}\n"
                 "📘 *Facebook*: Clinica Luma\n"
                 "☎️ *Telefone*: (11) 2043-9937\n"
                 "💬 *WhatsApp*: https://wa.me/5511968501810\n"
@@ -362,8 +405,6 @@ def responder_evento_mensagem(entry: dict) -> None:
         # Botões de forma
         if bid in {"forma_convenio","forma_particular"}:
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
-            # Se o usuário clicou "Convênio/Particular" fora de um fluxo (clique tardio),
-            # iniciamos automaticamente o fluxo de CONSULTA.
             if ses.get("route") not in {"consulta","exames","retorno","resultado","pesquisa"}:
                 ses = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             ses["data"]["forma"] = "Convênio" if bid == "forma_convenio" else "Particular"
@@ -382,7 +423,7 @@ def responder_evento_mensagem(entry: dict) -> None:
         # Em coleta? Continua
         ses = SESS.get(wa_to)
         if ses and ses.get("route") in {"consulta","exames","retorno","resultado","pesquisa"} and ses.get("stage"):
-            _continue_form(ss, wa_to, ses, body)
+            _continue_form(_gspread(), wa_to, ses, body)
             return
 
         # Atalhos digitados
@@ -480,13 +521,25 @@ def _continue_form(ss, wa_to, ses, user_text):
 
     # Consulta/Exames/Retorno: validar e avançar
     if stage:
-        # 'forma' é via botão — se digitou, normalizamos e seguimos
         if stage == "forma" and user_text:
             data["forma"] = _normalize("forma", user_text)
         else:
             err = _validate(stage, user_text, data=data)
             if err: _send_text(wa_to, err); return
             data[stage] = _normalize(stage, user_text)
+
+    # >>> BLOCO MONTAGEM DO ENDEREÇO (CEP→ViaCEP)
+    if route in {"consulta","exames"}:
+        if data.get("complemento","").strip().lower() in {"sem","s/","s"}:
+            data["complemento"] = ""
+        if data.get("cep") and data.get("numero") and ("complemento" in data) and not data.get("endereco"):
+            endereco_montado = _montar_endereco_via_cep(data["cep"], data["numero"], data.get("complemento",""))
+            if endereco_montado:
+                data["endereco"] = endereco_montado
+            else:
+                _send_text(wa_to, "Não consegui localizar o CEP. Confirme o CEP (8 dígitos) ou envie o endereço completo.")
+                ses["stage"] = "cep"
+                return
 
     pending = [(k,q) for (k,q) in (fields or []) if not data.get(k)]
     if pending:
@@ -501,10 +554,5 @@ def _continue_form(ss, wa_to, ses, user_text):
     # Finaliza (upsert paciente + solicitações + fechamento)
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
-
-    # fechamento do fluxo
     _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
-    # reseta a sessão, mas NÃO reenvia menu
     SESS[wa_to] = {"route":"root","stage":"","data":{}}
-    return
-
