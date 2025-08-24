@@ -53,11 +53,10 @@ def _ensure_ws(ss, title, headers):
 # ====== Utilitários ===========================================================
 # ====== Ajuste de fuso horário ===============================================
 from datetime import datetime
-import pytz
+from zoneinfo import ZoneInfo
 
 def _hora_sp():
-    tz = pytz.timezone("America/Sao_Paulo")
-    return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
 
 def _first_name(fullname: str) -> str:
     n = (fullname or "").strip()
