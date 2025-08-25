@@ -343,15 +343,15 @@ def responder_evento_mensagem(entry: dict) -> None:
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
-        # ----- complemento (botões)
-        if bid == "compl_sim":
+        # ----- complemento (botões) — aceita id OU título
+        if bid in {"compl_sim", "Sim", "SIM", "sim"}:
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
             ses["stage"] = "complemento"
             SESS[wa_to] = ses
             _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
             return
 
-        if bid == "compl_nao":
+        if bid in {"compl_nao", "Não", "Nao", "NAO", "nao", "não"}:
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
             ses["data"]["complemento"] = ""
             SESS[wa_to] = ses
