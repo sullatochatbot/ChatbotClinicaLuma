@@ -1,11 +1,5 @@
 # responder_clinica.py — Clínica Luma
 # ==============================================================================
-# Correções:
-# - Fluxo "Possui complemento?" não trava mais
-# - Aceita botão (Sim/Não) e também texto digitado ("sim"/"não")
-# - Após escolher "Não", finaliza sem pedir nada
-# - Após "Sim", qualquer texto encerra e finaliza
-# - Limpeza de estado ao concluir
 
 import os, re, json, requests
 from datetime import datetime
@@ -53,6 +47,8 @@ def _gspread():
         "timestamp","cpf","nome","nasc","endereco","cep","numero","complemento",
         "especialidade","exame"
     ])
+    # NOVA aba para sugestões
+    _ensure_ws(ss, "Sugestoes", ["timestamp","categoria","texto","wa_id"])
     return ss
 
 def _ensure_ws(ss, title, headers):
@@ -137,17 +133,23 @@ BTN_ROOT = [
     {"id": "op_mais",     "title": "+ Opções"},
 ]
 
-# ← como você pediu: multilinha e com o BTN_MAIS_1 contendo Endereço, Contato, Editar endereço e + Opções
 BTN_MAIS_1 = [
     {"id": "op_endereco",        "title": "Endereço"},
     {"id": "op_editar_endereco", "title": "Editar endereço"},
-    {"id": "op_mais2",           "title": "+ Opções"},
+    {"id": "op_sugestoes",       "title": "Sugestões"},
 ]
 
 BTN_MAIS_2 = [
     {"id": "op_especialidade", "title": "Especialidade"},
     {"id": "op_exames_atalho", "title": "Exames"},
     {"id": "op_voltar_root",   "title": "Voltar"},
+]
+
+# Submenu de sugestões
+BTN_SUGESTOES = [
+    {"id": "sug_especialidades", "title": "Especialidades"},
+    {"id": "sug_exames",         "title": "Exames"},
+    {"id": "op_voltar_root",     "title": "Voltar ao início"},
 ]
 
 BTN_FORMA = [
@@ -160,6 +162,11 @@ BTN_COMPLEMENTO = [
     {"id": "compl_nao", "title": "Não"},
 ]
 
+# Mensagem do fluxo de sugestões
+MSG_SUGESTOES = (
+    "💡 Ajude a Clínica Luma a melhorar! Diga quais *especialidades* ou *exames* "
+    "você gostaria que tivéssemos."
+)
 # ===== Validadores e normalização ============================================
 _RE_CPF  = re.compile(r"\D")
 _RE_DATE = re.compile(r"^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/\d{4}$")
@@ -188,14 +195,12 @@ def _normalize(key, v):
         if "part" in l: return "Particular"
 
     if key == "nasc":
-        # aceita 17021975, 17-02-1975, 17.02.1975 → salva como 17/02/1975
         s = re.sub(r"\D", "", v)
         if len(s) == 8:
             return f"{s[:2]}/{s[2:4]}/{s[4:]}"
-        return v  # se não couber, validação apontará erro
+        return v
 
     if key == "cep":
-        # salva sempre como 8 dígitos (sem hífen)
         return re.sub(r"\D", "", v)[:8]
 
     return v
@@ -209,6 +214,7 @@ def _is_yes(txt: str) -> bool:
 
 def _is_no(txt: str) -> bool:
     return (txt or "").strip().lower() in {"nao","não","n","no"}
+
 # ===== Persistência ===========================================================
 def _upsert_paciente(ss, d):
     ws  = ss.worksheet("Pacientes")
@@ -239,6 +245,10 @@ def _add_pesquisa(ss, d):
         d.get("cep",""), d.get("numero",""), d.get("complemento",""),
         d.get("especialidade",""), d.get("exame","")
     ], value_input_option="USER_ENTERED")
+
+def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
+    ws = ss.worksheet("Sugestoes")
+    ws.append_row([_hora_sp(), categoria, texto, wa_id], value_input_option="USER_ENTERED")
 
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
@@ -284,7 +294,7 @@ FECHAMENTO = {
     "exames":"✅ Perfeito! Atendente falará com você para agendar o exame."
 }
 
-# ===== Handler principal ======================================================
+# ===== Handler principal (INÍCIO) ============================================
 def responder_evento_mensagem(entry: dict) -> None:
     ss = _gspread()
 
@@ -349,6 +359,11 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_text(wa_to, "Informe seu CEP (apenas números, ex: 03878000):")
             return
 
+        if bid == "op_sugestoes":
+            _send_text(wa_to, MSG_SUGESTOES)
+            _send_buttons(wa_to, "Selecione uma opção:", BTN_SUGESTOES)
+            return
+
         if bid == "op_mais2":
             _send_buttons(wa_to, "O que você procura?", BTN_MAIS_2)
             return
@@ -368,13 +383,23 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"pesquisa","stage":"exame","data":{}}
             _send_text(wa_to, "Qual exame você procura?")
             return
-
         # ----- forma (convênio/particular)
         if bid in {"forma_convenio","forma_particular"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             ses["data"]["forma"] = "Convênio" if bid=="forma_convenio" else "Particular"
             SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+            return
+
+        # ----- sugestões (escolha da categoria)
+        if bid == "sug_especialidades":
+            SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"especialidades"}}
+            _send_text(wa_to, "Digite quais *especialidades* você gostaria que a clínica oferecesse:")
+            return
+
+        if bid == "sug_exames":
+            SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
+            _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:")
             return
 
         # ----- complemento (botões) — aceita id OU título
@@ -401,6 +426,20 @@ def responder_evento_mensagem(entry: dict) -> None:
         body = (msg.get("text", {}).get("body") or "").strip()
         low  = body.lower()
 
+        # sugestões: aguardando texto
+        ses = SESS.get(wa_to)
+        if ses and ses.get("route") == "sugestao" and ses.get("stage") == "await_text":
+            categoria = ses["data"].get("categoria","")
+            texto = body.strip()
+            if not texto:
+                _send_text(wa_to, "Pode digitar sua sugestão, por favor?")
+                return
+            _add_sugestao(ss, categoria, texto, wa_to)
+            _send_text(wa_to, "🙏 Obrigado pela sugestão! Ela nos ajuda a melhorar a cada dia.")
+            SESS[wa_to] = {"route":"root","stage":"","data":{}}
+            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
+            return
+
         ses = SESS.get(wa_to)
         active_routes = {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"}
         if ses and ses.get("route") in active_routes and ses.get("stage"):
@@ -418,6 +457,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
         return
+
 # ===== Auxiliares de Fluxo ====================================================
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     route = ses.get("route")
