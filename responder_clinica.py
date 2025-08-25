@@ -1,4 +1,4 @@
-# responder_clinica.py — Fluxo final Clínica Luma (com CEP + ViaCEP + timezone zoneinfo)
+# responder_clinica.py — Fluxo final Clínica Luma
 # ==============================================================================
 
 # ====== Imports & Tipagem =====================================================
@@ -56,7 +56,6 @@ def _hora_sp():
     return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
 
 # ====== CEP + ViaCEP ==========================================================
-# >>> BLOCO CEP AUTOCOMPLETE (helpers) <<<
 _RE_CEP = re.compile(r"^\d{8}$")
 
 def _cep_ok(s: str) -> bool:
@@ -110,7 +109,6 @@ def _send_text(to, text):
         print("[WA ERROR]", r.status_code, r.text)
 
 def _send_buttons(to, body, buttons):
-    # buttons: [{"id":"op_consulta","title":"Consulta"}, ...]
     if not (WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID):
         print("[MOCK→WA BTNS]", to, body, buttons); return
     payload = {
@@ -141,24 +139,27 @@ BTN_ROOT = [
     {"id":"op_mais","title":"+ Opções"},
 ]
 
-# “+ Opções” — nível 1
 BTN_MAIS_1 = [
     {"id":"op_endereco","title":"Endereço"},
     {"id":"op_contato","title":"Contato"},
     {"id":"op_mais2","title":"+ Opções"},
 ]
 
-# “+ Opções” — nível 2 (o que procura)
 BTN_MAIS_2 = [
     {"id":"op_especialidade","title":"Especialidade"},
     {"id":"op_exames_atalho","title":"Exames"},
     {"id":"op_voltar_root","title":"Voltar"},
 ]
 
-# Botões para forma
 BTN_FORMA = [
     {"id":"forma_convenio","title":"Convênio"},
     {"id":"forma_particular","title":"Particular"},
+]
+
+# >>> BOTÕES: complemento (sim/não)
+BTN_COMPLEMENTO = [
+    {"id":"compl_sim","title":"Sim"},
+    {"id":"compl_nao","title":"Não"},
 ]
 # ====== Validadores e Normalizadores =========================================
 _RE_CPF   = re.compile(r"\D")
@@ -204,7 +205,7 @@ def _ask_forma(wa_to):
 # ====== Persistência (Sheets) =================================================
 def _find_paciente(ss, cpf) -> Optional[Dict[str,str]]:
     ws = ss.worksheet("Pacientes")
-    col = ws.col_values(1)  # cpf
+    col = ws.col_values(1)
     try:
         idx = col.index(cpf) + 1
     except ValueError:
@@ -218,8 +219,7 @@ def _upsert_paciente(ss, data: Dict[str,Any]):
     cpf = data.get("cpf")
     if not cpf: return
     col = ws.col_values(1)
-    if cpf in col:
-        return
+    if cpf in col: return
     row = [
         data.get("cpf",""), data.get("nome",""), data.get("nasc",""), data.get("endereco",""),
         data.get("forma",""), data.get("convenio",""), data.get("tipo",""), _hora_sp()
@@ -242,10 +242,9 @@ def _add_pesquisa(ss, data: Dict[str,Any]):
     ws.append_row(row, value_input_option="USER_ENTERED")
 
 # ====== Sessão em Memória =====================================================
-SESS: Dict[str, Dict[str, Any]] = {}  # wa_id -> {"route": str, "stage": str, "data": dict}
+SESS: Dict[str, Dict[str, Any]] = {}
 
 # ====== Campos (dinâmicos conforme forma) =====================================
-# >>> BLOCO FLUXO CONSULTA (usar CEP) <<<
 def _comuns_consulta(data):
     campos = [("forma","Convênio ou Particular?")]
     if data.get("forma") == "Convênio":
@@ -257,11 +256,9 @@ def _comuns_consulta(data):
         ("especialidade","Qual especialidade você procura?"),
         ("cep","Informe seu CEP (apenas números, ex: 03878000):"),
         ("numero","Informe o número:"),
-        ("complemento","Complemento (ou responda 'sem'):"),
     ]
     return campos
 
-# >>> BLOCO FLUXO EXAMES (usar CEP) <<<
 def _comuns_exames(data):
     campos = [("forma","Convênio ou Particular?")]
     if data.get("forma") == "Convênio":
@@ -273,16 +270,12 @@ def _comuns_exames(data):
         ("exame","Qual exame você procura?"),
         ("cep","Informe seu CEP (apenas números, ex: 03878000):"),
         ("numero","Informe o número:"),
-        ("complemento","Complemento (ou responda 'sem'):"),
     ]
     return campos
 
 def _fields_for(route: str, data: Dict[str,Any]):
-    """Retorna a lista de (campo, pergunta) dinâmica para cada fluxo."""
-    if route == "consulta":
-        return _comuns_consulta(data)
-    if route == "exames":
-        return _comuns_exames(data)
+    if route == "consulta": return _comuns_consulta(data)
+    if route == "exames":   return _comuns_exames(data)
     if route in {"retorno","resultado"}:
         campos = [("forma","Convênio ou Particular?")]
         if data.get("forma") == "Convênio":
@@ -314,12 +307,11 @@ def _prompt_basico(key):
         "nasc":"Data de nascimento (DD/MM/AAAA):",
         "endereco":"Endereço (rua, nº, bairro, CEP, cidade/UF):",
         "convenio":"Qual é o nome do seu convênio?",
-        # novos:
         "cep":"Informe seu CEP (apenas números, ex: 03878000):",
         "numero":"Informe o número:",
-        "complemento":"Complemento (apto, bloco, sala) – se não houver, responda 'sem':",
+        "complemento":"Complemento (apto, bloco, sala):",
     }.get(key, "Informe o dado solicitado:")
-# ====== Handler principal (Webhook) ===========================================
+# ====== Handler principal =====================================================
 def responder_evento_mensagem(entry: dict) -> None:
     ss = _gspread()
     value    = (entry.get("changes") or [{}])[0].get("value", {})
@@ -330,7 +322,6 @@ def responder_evento_mensagem(entry: dict) -> None:
     msg     = messages[0]
     wa_to   = contacts[0].get("wa_id") or msg.get("from")
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
-
     mtype   = msg.get("type")
 
     # -- BOTÕES / INTERACTIVE --------------------------------------------------
@@ -362,7 +353,6 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # “+ Opções” nível 1
         if bid == "op_endereco":
-            # >>> BLOCO ENDEREÇO / CONTATO (Clínica Luma) <<<
             txt = (
                 "📍 *Endereço*\n"
                 "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n\n"
@@ -411,6 +401,21 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = ses
             _after_forma_prompt_next(wa_to, ses); return
 
+        # >>> HANDLER: complemento sim/não
+        if bid == "compl_sim":
+            ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
+            ses["stage"] = "complemento"
+            SESS[wa_to] = ses
+            _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
+            return
+
+        if bid == "compl_nao":
+            ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
+            ses["data"]["complemento"] = ""  # sem complemento
+            SESS[wa_to] = ses
+            _after_forma_prompt_next(wa_to, ses)
+            return
+
         # fallback
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
         return
@@ -441,9 +446,8 @@ def responder_evento_mensagem(entry: dict) -> None:
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
         return
 
-# ====== Auxiliares de Fluxo (após escolher forma; continuar coleta) ===========
+# ====== Auxiliares de Fluxo ===================================================
 def _after_forma_prompt_next(wa_to, ses):
-    """Após selecionar Convênio/Particular, decide o próximo campo (dinâmico)."""
     route = ses.get("route")
     data  = ses.get("data", {})
     fields = _fields_for(route, data) or []
@@ -519,7 +523,7 @@ def _continue_form(ss, wa_to, ses, user_text):
         _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
         return
 
-    # Consulta/Exames/Retorno: validar e avançar
+    # Consulta/Exames: validar e avançar
     if stage:
         if stage == "forma" and user_text:
             data["forma"] = _normalize("forma", user_text)
@@ -528,7 +532,18 @@ def _continue_form(ss, wa_to, ses, user_text):
             if err: _send_text(wa_to, err); return
             data[stage] = _normalize(stage, user_text)
 
-    # >>> BLOCO MONTAGEM DO ENDEREÇO (CEP→ViaCEP)
+    # Após número → pergunta “Possui complemento?” com botões
+    if route in {"consulta","exames"} and stage == "numero":
+        SESS[wa_to]["stage"] = "complemento_pending"
+        _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
+        return
+
+    # Se o usuário digitou o complemento (quando escolheu "Sim")
+    if route in {"consulta","exames"} and stage == "complemento":
+        # segue o fluxo normalmente (endereço será montado abaixo)
+        pass
+
+    # >>> Montagem do ENDEREÇO (CEP→ViaCEP)
     if route in {"consulta","exames"}:
         if data.get("complemento","").strip().lower() in {"sem","s/","s"}:
             data["complemento"] = ""
@@ -551,7 +566,7 @@ def _continue_form(ss, wa_to, ses, user_text):
             _send_text(wa_to, question)
         return
 
-    # Finaliza (upsert paciente + solicitações + fechamento)
+    # Finaliza
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
     _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
