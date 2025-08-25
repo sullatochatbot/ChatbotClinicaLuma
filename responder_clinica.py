@@ -121,16 +121,44 @@ def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
     }
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
 
-# ===== Botões/UI ==============================================================
-WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
-def _welcome_named(name):
-    return f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}." if name else WELCOME_GENERIC
+# ===== Botões/UI =============================================================
 
-BTN_ROOT      = [{"id":"op_consulta","title":"Consulta"},{"id":"op_exames","title":"Exames"},{"id":"op_mais","title":"+ Opções"}]
-BTN_MAIS_1    = [{"id":"op_endereco","title":"Endereço"},{"id":"op_contato","title":"Contato"},{"id":"op_editar_endereco","title":"Editar endereço"},{"id":"op_mais2","title":"+ Opções"}]
-BTN_MAIS_2    = [{"id":"op_especialidade","title":"Especialidade"},{"id":"op_exames_atalho","title":"Exames"},{"id":"op_voltar_root","title":"Voltar"}]
-BTN_FORMA     = [{"id":"forma_convenio","title":"Convênio"},{"id":"forma_particular","title":"Particular"}]
-BTN_COMPLEMENTO = [{"id":"compl_sim","title":"Sim"},{"id":"compl_nao","title":"Não"}]
+WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
+
+def _welcome_named(name):
+    return (
+        f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}."
+        if name else WELCOME_GENERIC
+    )
+
+BTN_ROOT = [
+    {"id": "op_consulta", "title": "Consulta"},
+    {"id": "op_exames",   "title": "Exames"},
+    {"id": "op_mais",     "title": "+ Opções"},
+]
+
+# ← como você pediu: multilinha e com o BTN_MAIS_1 contendo Endereço, Contato, Editar endereço e + Opções
+BTN_MAIS_1 = [
+    {"id": "op_endereco",        "title": "Endereço"},
+    {"id": "op_editar_endereco", "title": "Editar endereço"},
+    {"id": "op_mais2",           "title": "+ Opções"},
+]
+
+BTN_MAIS_2 = [
+    {"id": "op_especialidade", "title": "Especialidade"},
+    {"id": "op_exames_atalho", "title": "Exames"},
+    {"id": "op_voltar_root",   "title": "Voltar"},
+]
+
+BTN_FORMA = [
+    {"id": "forma_convenio",   "title": "Convênio"},
+    {"id": "forma_particular", "title": "Particular"},
+]
+
+BTN_COMPLEMENTO = [
+    {"id": "compl_sim", "title": "Sim"},
+    {"id": "compl_nao", "title": "Não"},
+]
 
 # ===== Validadores e normalização ============================================
 _RE_CPF  = re.compile(r"\D")
@@ -142,7 +170,7 @@ def _date_ok(s):  return bool(_RE_DATE.match(s or ""))
 def _validate(key, v, *, data=None):
     v = (v or "").strip()
     if key=="cpf" and len(_cpf_clean(v))!=11:         return "CPF inválido."
-    if key=="nasc" and not _date_ok(v):               return "Data inválida."
+    if key=="nasc" and not _date_ok(v):               return "Data inválida. Use o formato dd/mm/aaaa."
     if key=="convenio" and (data or {}).get("forma")=="Convênio" and not v: return "Informe o convênio."
     if key=="cep" and not _cep_ok(v):                 return "CEP inválido (8 dígitos)."
     if key=="numero" and not v:                       return "Informe o número."
@@ -151,11 +179,25 @@ def _validate(key, v, *, data=None):
 
 def _normalize(key, v):
     v = (v or "").strip()
-    if key=="cpf": return _cpf_clean(v)
+    if key=="cpf": 
+        return _cpf_clean(v)
+
     if key=="forma":
         l = v.lower()
         if "conv" in l: return "Convênio"
         if "part" in l: return "Particular"
+
+    if key == "nasc":
+        # aceita 17021975, 17-02-1975, 17.02.1975 → salva como 17/02/1975
+        s = re.sub(r"\D", "", v)
+        if len(s) == 8:
+            return f"{s[:2]}/{s[2:4]}/{s[4:]}"
+        return v  # se não couber, validação apontará erro
+
+    if key == "cep":
+        # salva sempre como 8 dígitos (sem hífen)
+        return re.sub(r"\D", "", v)[:8]
+
     return v
 
 def _ask_forma(to):
@@ -209,9 +251,9 @@ def _comuns_consulta(d):
     campos += [
         ("nome","Informe seu nome completo:"),
         ("cpf","Informe seu CPF:"),
-        ("nasc","Data de nascimento:"),
+        ("nasc","Data de nascimento (dd/mm/aaaa):"),
         ("especialidade","Qual especialidade?"),
-        ("cep","Informe seu CEP:"),
+        ("cep","Informe seu CEP (8 dígitos, ex: 03878000):"),
         ("numero","Informe o número:")
     ]
     return campos
@@ -223,9 +265,9 @@ def _comuns_exames(d):
     campos += [
         ("nome","Informe seu nome completo:"),
         ("cpf","Informe seu CPF:"),
-        ("nasc","Data de nascimento:"),
+        ("nasc","Data de nascimento (dd/mm/aaaa):"),
         ("exame","Qual exame?"),
-        ("cep","Informe seu CEP:"),
+        ("cep","Informe seu CEP (8 dígitos, ex: 03878000):"),
         ("numero","Informe o número:")
     ]
     return campos
@@ -295,16 +337,8 @@ def responder_evento_mensagem(entry: dict) -> None:
                 "📘 *Facebook*: Clinica Luma\n"
                 "☎️ *Telefone*: (11) 2043-9937\n"
                 "💬 *WhatsApp*: https://wa.me/5511968501810\n"
+                "✉️ *E-mail*: luma.centromed@gmail.com\n"
             )
-            _send_text(wa_to, txt)
-            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
-            return
-
-        if bid == "op_contato":
-            txt = "Fale conosco:\n"
-            if LINK_SITE:      txt += f"• Site: {LINK_SITE}\n"
-            if LINK_INSTAGRAM: txt += f"• Instagram: {LINK_INSTAGRAM}\n"
-            txt = txt.strip() or "Em breve canais de contato."
             _send_text(wa_to, txt)
             _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
             return
@@ -441,8 +475,12 @@ def _continue_form(ss, wa_to, ses, user_text):
     stage = ses.get("stage","")
     data  = ses["data"]
 
-    # 1) Campo atual → valida/salva
+    # 1) Campo atual → normaliza/valida/salva
     if stage:
+        # Para nasc/cep, normaliza ANTES de validar (aceita variações)
+        if stage in {"nasc", "cep"}:
+            user_text = _normalize(stage, user_text)
+
         if stage == "forma":
             data["forma"] = _normalize("forma", user_text)
         else:
@@ -450,7 +488,8 @@ def _continue_form(ss, wa_to, ses, user_text):
             if err:
                 _send_text(wa_to, err)
                 return
-            data[stage] = _normalize(stage, user_text)
+            # nasc/cep já vieram normalizados; demais normaliza agora
+            data[stage] = user_text if stage in {"nasc", "cep"} else _normalize(stage, user_text)
 
     # 2) Após número → perguntar complemento (botões)
     if route in {"consulta","exames","editar_endereco"} and stage == "numero":
