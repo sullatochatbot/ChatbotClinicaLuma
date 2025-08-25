@@ -34,9 +34,20 @@ def _gspread():
     ])
     gc = gspread.authorize(creds)
     ss = gc.open_by_key(CLINICA_SHEET_ID)
-    _ensure_ws(ss, "Pacientes",    ["cpf","nome","nasc","endereco","forma","convenio","tipo","created_at"])
-    _ensure_ws(ss, "Solicitacoes", ["timestamp","tipo","forma","convenio","cpf","nome","nasc","especialidade","exame","endereco"])
-    _ensure_ws(ss, "Pesquisa",     ["timestamp","cpf","nome","nasc","endereco","especialidade","exame"])
+
+    # >>> HEADERS (agora com cep, numero, complemento)
+    _ensure_ws(ss, "Pacientes", [
+        "cpf","nome","nasc","endereco","cep","numero","complemento",
+        "forma","convenio","tipo","created_at"
+    ])
+    _ensure_ws(ss, "Solicitacoes", [
+        "timestamp","tipo","forma","convenio","cpf","nome","nasc",
+        "especialidade","exame","endereco","cep","numero","complemento"
+    ])
+    _ensure_ws(ss, "Pesquisa", [
+        "timestamp","cpf","nome","nasc","endereco","cep","numero","complemento",
+        "especialidade","exame"
+    ])
     return ss
 
 def _ensure_ws(ss, title, headers):
@@ -221,24 +232,53 @@ def _upsert_paciente(ss, data: Dict[str,Any]):
     col = ws.col_values(1)
     if cpf in col: return
     row = [
-        data.get("cpf",""), data.get("nome",""), data.get("nasc",""), data.get("endereco",""),
-        data.get("forma",""), data.get("convenio",""), data.get("tipo",""), _hora_sp()
+        data.get("cpf",""),
+        data.get("nome",""),
+        data.get("nasc",""),
+        data.get("endereco",""),
+        data.get("cep",""),
+        data.get("numero",""),
+        data.get("complemento",""),
+        data.get("forma",""),
+        data.get("convenio",""),
+        data.get("tipo",""),
+        _hora_sp(),
     ]
     ws.append_row(row, value_input_option="USER_ENTERED")
 
 def _add_solicitacao(ss, data: Dict[str,Any]):
     ws = ss.worksheet("Solicitacoes")
     row = [
-        _hora_sp(), data.get("tipo",""), data.get("forma",""), data.get("convenio",""),
-        data.get("cpf",""), data.get("nome",""), data.get("nasc",""),
-        data.get("especialidade",""), data.get("exame",""), data.get("endereco","")
+        _hora_sp(),
+        data.get("tipo",""),
+        data.get("forma",""),
+        data.get("convenio",""),
+        data.get("cpf",""),
+        data.get("nome",""),
+        data.get("nasc",""),
+        data.get("especialidade",""),
+        data.get("exame",""),
+        data.get("endereco",""),
+        data.get("cep",""),
+        data.get("numero",""),
+        data.get("complemento",""),
     ]
     ws.append_row(row, value_input_option="USER_ENTERED")
 
 def _add_pesquisa(ss, data: Dict[str,Any]):
     ws = ss.worksheet("Pesquisa")
-    row = [_hora_sp(), data.get("cpf",""), data.get("nome",""), data.get("nasc",""),
-           data.get("endereco",""), data.get("especialidade",""), data.get("exame","")]
+    row = [
+        _hora_sp(),
+        data.get("cpf",""),
+        data.get("nome",""),
+        data.get("nasc",""),
+        data.get("endereco",""),
+        data.get("cep",""),
+        data.get("numero",""),
+        data.get("complemento",""),
+        data.get("especialidade",""),
+        data.get("exame",""),
+    ]
     ws.append_row(row, value_input_option="USER_ENTERED")
 
 # ====== Sessão em Memória =====================================================
@@ -488,7 +528,8 @@ def _continue_form(ss, wa_to, ses, user_text):
             payload = {
                 "tipo": route, "forma": pac.get("forma",""), "convenio": pac.get("convenio",""),
                 "cpf": cpf, "nome": pac.get("nome",""), "nasc": pac.get("nasc",""),
-                "especialidade":"", "exame":"", "endereco": pac.get("endereco","")
+                "especialidade":"", "exame":"", "endereco": pac.get("endereco",""),
+                "cep": pac.get("cep",""), "numero": pac.get("numero",""), "complemento": pac.get("complemento","")
             }
             _add_solicitacao(ss, payload)
             _send_text(wa_to, "Localizamos seu cadastro.")
@@ -538,10 +579,7 @@ def _continue_form(ss, wa_to, ses, user_text):
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
         return
 
-    # Se o usuário digitou o complemento (quando escolheu "Sim")
-    if route in {"consulta","exames"} and stage == "complemento":
-        # segue o fluxo normalmente (endereço será montado abaixo)
-        pass
+    # Se o usuário digitou o complemento (quando escolheu "Sim"), segue normal
 
     # >>> Montagem do ENDEREÇO (CEP→ViaCEP)
     if route in {"consulta","exames"}:
