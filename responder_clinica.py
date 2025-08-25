@@ -47,7 +47,6 @@ def _gspread():
         "timestamp","cpf","nome","nasc","endereco","cep","numero","complemento",
         "especialidade","exame"
     ])
-    # NOVA aba para sugestões
     _ensure_ws(ss, "Sugestoes", ["timestamp","categoria","texto","wa_id"])
     return ss
 
@@ -127,31 +126,31 @@ def _welcome_named(name):
         if name else WELCOME_GENERIC
     )
 
+# Menu 1
 BTN_ROOT = [
     {"id": "op_consulta", "title": "Consulta"},
     {"id": "op_exames",   "title": "Exames"},
     {"id": "op_mais",     "title": "+ Opções"},
 ]
 
-# Menu 3 (ajuste de rótulo): Editar endereço → Editar dados gerais
-BTN_MAIS_1 = [
-    {"id": "op_endereco",        "title": "Endereço"},
-    {"id": "op_editar_endereco", "title": "Editar dados gerais"},
-    {"id": "op_sugestoes",       "title": "Sugestões"},
-]
-
-# Menu 2: Retorno / Resultado
+# Menu 2 (Retorno / Resultado) – + Opções leva ao Menu 3
 BTN_MAIS_2 = [
     {"id": "op_retorno",    "title": "Retorno de consultas"},
     {"id": "op_resultado",  "title": "Resultado de exames"},
-    {"id": "op_voltar_root","title": "+ Opções"}
+    {"id": "op_mais3",      "title": "+ Opções"}
 ]
 
-# Submenu de sugestões
-BTN_SUGESTOES = [
-    {"id": "sug_especialidades", "title": "Especialidades"},
-    {"id": "sug_exames",         "title": "Exames"},
-    {"id": "op_voltar_root",     "title": "Voltar ao início"},
+# Menu 3 (Endereço / Editar dados gerais) – + Opções leva ao Menu 4
+BTN_MAIS_3 = [
+    {"id": "op_endereco",        "title": "Endereço"},
+    {"id": "op_editar_endereco", "title": "Editar dados gerais"},
+    {"id": "op_mais4",           "title": "+ Opções"}
+]
+
+# Menu 4 (Sugestões | Voltar)
+BTN_MAIS_4 = [
+    {"id": "op_sugestoes",   "title": "Sugestões"},
+    {"id": "op_voltar_root", "title": "Voltar ao início"}
 ]
 
 BTN_FORMA = [
@@ -300,7 +299,6 @@ def _fields_for(route, d):
     if route=="consulta":         return _comuns_consulta(d)
     if route=="exames":           return _comuns_exames(d)
     if route=="editar_endereco":  return [("cep","Informe seu CEP:"),("numero","Informe o número:")]
-    # Rotas novas: retorno/resultado → CPF + nascimento
     if route=="retorno":          return [("cpf","Informe o CPF:"), ("nasc","Data de nascimento (dd/mm/aaaa):")]
     if route=="resultado":        return [("cpf","Informe o CPF:"), ("nasc","Data de nascimento (dd/mm/aaaa):")]
     return None
@@ -310,7 +308,8 @@ FECHAMENTO = {
     "consulta":"✅ Obrigado! Atendente entrará em contato para confirmar a consulta.",
     "exames":"✅ Perfeito! Atendente falará com você para agendar o exame."
 }
-# ===== Handler principal (INÍCIO) ============================================
+
+# ===== Handler principal ======================================================
 def responder_evento_mensagem(entry: dict) -> None:
     ss = _gspread()
 
@@ -337,7 +336,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
             return
 
-        # ----- raiz
+        # ----- raiz (Menu 1)
         if bid in {"op_consulta", "Consulta"}:
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _ask_forma(wa_to)
@@ -348,12 +347,30 @@ def responder_evento_mensagem(entry: dict) -> None:
             _ask_forma(wa_to)
             return
 
+        # + Opções do Menu 1 → abre Menu 2
         if bid in {"op_mais", "+ Opções", "+ Opcoes"}:
-            SESS[wa_to] = {"route":"mais","stage":"","data":{}}
-            _send_buttons(wa_to, "Outras opções:", BTN_MAIS_1)
+            SESS[wa_to] = {"route":"mais2","stage":"","data":{}}
+            _send_buttons(wa_to, "Outras opções:", BTN_MAIS_2)
             return
 
-        # ----- opções nível 1 (Menu 3)
+        # ----- Menu 2
+        if bid == "op_retorno":
+            SESS[wa_to] = {"route":"retorno","stage":"cpf","data":{"tipo":"retorno"}}
+            _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
+            return
+
+        if bid == "op_resultado":
+            SESS[wa_to] = {"route":"resultado","stage":"cpf","data":{"tipo":"resultado"}}
+            _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
+            return
+
+        # + Opções do Menu 2 → abre Menu 3
+        if bid == "op_mais3":
+            SESS[wa_to] = {"route":"mais3","stage":"","data":{}}
+            _send_buttons(wa_to, "Mais opções:", BTN_MAIS_3)
+            return
+
+        # ----- Menu 3
         if bid == "op_endereco":
             txt = (
                 "📍 *Endereço*\n"
@@ -369,32 +386,27 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
             return
 
-        # Editar endereço → AGORA vira Editar dados gerais (reset)
+        # Editar endereço → AGORA vira Editar dados gerais (reset completo)
         if bid == "op_editar_endereco":
-            # Reset completo: recomeça por Convênio/Particular
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _send_text(wa_to, "Vamos atualizar seus dados. Primeiro:")
             _ask_forma(wa_to)
             return
 
+        # + Opções do Menu 3 → abre Menu 4
+        if bid == "op_mais4":
+            SESS[wa_to] = {"route":"mais4","stage":"","data":{}}
+            _send_buttons(wa_to, "Opções finais:", BTN_MAIS_4)
+            return
+
+        # ----- Menu 4
         if bid == "op_sugestoes":
             _send_text(wa_to, MSG_SUGESTOES)
-            _send_buttons(wa_to, "Selecione uma opção:", BTN_SUGESTOES)
-            return
-
-        # ----- opções nível 2 (Menu 2: Retorno / Resultado)
-        if bid == "op_mais2":
-            _send_buttons(wa_to, "O que você procura?", BTN_MAIS_2)
-            return
-
-        if bid == "op_retorno":
-            SESS[wa_to] = {"route":"retorno","stage":"cpf","data":{"tipo":"retorno"}}
-            _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
-            return
-
-        if bid == "op_resultado":
-            SESS[wa_to] = {"route":"resultado","stage":"cpf","data":{"tipo":"resultado"}}
-            _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
+            _send_buttons(wa_to, "Selecione uma opção:", [
+                {"id":"sug_especialidades","title":"Especialidades"},
+                {"id":"sug_exames","title":"Exames"},
+                {"id":"op_voltar_root","title":"Voltar ao início"},
+            ])
             return
 
         if bid == "op_voltar_root":
@@ -402,15 +414,15 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
             return
 
-        # ----- submenu pesquisa (mantido dentro de +Opções, se usado)
-        if bid == "op_especialidade":
-            SESS[wa_to] = {"route":"pesquisa","stage":"especialidade","data":{}}
-            _send_text(wa_to, "Qual especialidade você procura?")
+        # ----- submenu sugestões (categorias)
+        if bid == "sug_especialidades":
+            SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"especialidades"}}
+            _send_text(wa_to, "Digite quais *especialidades* você gostaria que a clínica oferecesse:")
             return
 
-        if bid == "op_exames_atalho":
-            SESS[wa_to] = {"route":"pesquisa","stage":"exame","data":{}}
-            _send_text(wa_to, "Qual exame você procura?")
+        if bid == "sug_exames":
+            SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
+            _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:")
             return
 
         # ----- forma (convênio/particular)
@@ -425,13 +437,11 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid in {"pac_voce","pac_outro"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             if bid == "pac_voce":
-                # paciente = o próprio responsável → segue fluxo normal
                 ses["stage"] = None
                 SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
             else:
-                # outro paciente → coletar dados do paciente antes de seguir
                 ses["data"]["_pac_outro"] = True
                 ses["stage"] = "paciente_nome"
                 SESS[wa_to] = ses
@@ -442,29 +452,16 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid in {"confirmar","corrigir"}:
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
             if bid == "corrigir":
-                # Volta para o reset (Editar dados gerais)
                 SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
                 _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:")
                 _ask_forma(wa_to)
                 return
-            # confirmar
             ses["data"]["_confirmado"] = True
             SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
-        # ----- sugestões (escolha da categoria)
-        if bid == "sug_especialidades":
-            SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"especialidades"}}
-            _send_text(wa_to, "Digite quais *especialidades* você gostaria que a clínica oferecesse:")
-            return
-
-        if bid == "sug_exames":
-            SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
-            _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:")
-            return
-
-        # ----- complemento (botões) — aceita id OU título
+        # ----- complemento (botões)
         if bid in {"compl_sim", "Sim", "SIM", "sim"}:
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
             ses["stage"] = "complemento"
@@ -519,6 +516,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
         return
+
 # ===== Auxiliares de Fluxo ====================================================
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     route = ses.get("route")
@@ -536,7 +534,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
                 _send_text(wa_to, "Não localizei o CEP. Envie 8 dígitos ou informe o endereço completo.")
                 return
 
-    # Bifurcação paciente (logo após definirmos 'forma'): se ainda não perguntamos
+    # Bifurcação paciente (logo após definirmos 'forma')
     if route in {"consulta","exames"} and data.get("forma") and not data.get("_pac_decidido"):
         data["_pac_decidido"] = True
         ses["stage"] = "paciente_escolha"
@@ -545,7 +543,6 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         return
 
     # Confirmação antes de salvar (consulta/exames)
-    # (Somente quando não há pendências e ainda não foi confirmado)
     fields = _fields_for(route, data) or []
     pend   = [(k, q) for (k, q) in fields if not data.get(k)]
     if not pend and route in {"consulta","exames"} and not data.get("_confirmado"):
@@ -574,7 +571,6 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         ses["stage"] = next_key
         SESS[wa_to] = ses
 
-        # após "numero", abrimos a decisão de complemento
         if next_key == "numero":
             _send_text(wa_to, question)
             return
@@ -593,7 +589,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
         return
 
-    # editar_endereco → somente registra a atualização e encerra
+    # editar_endereco → apenas registra atualização (se algum dia voltar a usar)
     if route == "editar_endereco":
         d = dict(data); d["tipo"] = "editar_endereco"
         _add_solicitacao(ss, d)
@@ -617,7 +613,6 @@ def _continue_form(ss, wa_to, ses, user_text):
 
     # 1) Campo atual → normaliza/valida/salva
     if stage:
-        # Para nasc/cep, normaliza ANTES de validar (aceita variações)
         if stage in {"nasc", "cep"}:
             user_text = _normalize(stage, user_text)
 
@@ -628,7 +623,6 @@ def _continue_form(ss, wa_to, ses, user_text):
             if err:
                 _send_text(wa_to, err)
                 return
-            # nasc/cep já vieram normalizados; demais normaliza agora
             data[stage] = user_text if stage in {"nasc", "cep"} else _normalize(stage, user_text)
 
     # 2) Coleta do paciente quando for "outro"
@@ -650,7 +644,6 @@ def _continue_form(ss, wa_to, ses, user_text):
             return
         if stage == "paciente_doc":
             data["paciente_documento"] = (user_text or "").strip()
-            # encerra a subcoleta e volta ao fluxo normal
             ses["stage"] = None
             SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
@@ -676,7 +669,6 @@ def _continue_form(ss, wa_to, ses, user_text):
             SESS[wa_to] = ses
             _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
             return
-        # Não entendeu → reapresenta botões
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
         return
 
@@ -688,7 +680,7 @@ def _continue_form(ss, wa_to, ses, user_text):
         _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
         return
 
-    # 6) Fluxos de pesquisa (atalhos)
+    # 6) Fluxos de pesquisa (se você usar esse atalho no +Opções)
     if route == "pesquisa":
         needed = ["nome","cpf","nasc","endereco","especialidade","exame"]
         for k in needed:
