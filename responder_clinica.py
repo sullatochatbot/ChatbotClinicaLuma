@@ -489,8 +489,8 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid in {"compl_nao", "Não", "Nao", "NAO", "nao", "não"}:
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
             ses["data"]["complemento"] = ""
+            ses["stage"] = None  # <<< limpa o estágio para não repetir a pergunta
             SESS[wa_to] = ses
-            ses["stage"] = None  # << limpa o estágio para não repetir a pergunta
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
