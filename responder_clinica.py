@@ -264,6 +264,7 @@ def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
 
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
+
 # ===== PARTE 2 =================================================================
 # Campos dinâmicos + helper de pergunta
 def _comuns_consulta(d):
@@ -336,51 +337,52 @@ def responder_evento_mensagem(entry: dict) -> None:
 
     # ===== INTERACTIVE =======================================================
     if mtype == "interactive":
-        inter = msg.get("interactive", {})
-        br    = inter.get("button_reply") or {}
-        lr    = inter.get("list_reply") or {}
-        bid   = br.get("id") or br.get("title") or lr.get("id") or lr.get("title")
+        inter    = msg.get("interactive", {})
+        br       = inter.get("button_reply") or {}
+        lr       = inter.get("list_reply") or {}
+        bid_id   = (br.get("id") or lr.get("id") or "").strip()
+        # bid_text = (br.get("title") or lr.get("title") or "").strip()  # opcional p/ logs
 
-        if not bid:
+        if not bid_id:
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
             return
 
         # ----- raiz (Menu 1)
-        if bid in {"op_consulta", "Consulta"}:
+        if bid_id == "op_consulta":
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _ask_forma(wa_to)
             return
 
-        if bid in {"op_exames", "Exames"}:
+        if bid_id == "op_exames":
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}
             _ask_forma(wa_to)
             return
 
         # + Opções do Menu 1 → abre Menu 2
-        if bid in {"op_mais", "+ Opções", "+ Opcoes"}:
+        if bid_id == "op_mais":
             SESS[wa_to] = {"route":"mais2","stage":"","data":{}}
             _send_buttons(wa_to, "Outras opções:", BTN_MAIS_2)
             return
 
         # ----- Menu 2
-        if bid == "op_retorno":
+        if bid_id == "op_retorno":
             SESS[wa_to] = {"route":"retorno","stage":"cpf","data":{"tipo":"retorno"}}
             _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
             return
 
-        if bid == "op_resultado":
+        if bid_id == "op_resultado":
             SESS[wa_to] = {"route":"resultado","stage":"cpf","data":{"tipo":"resultado"}}
             _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
             return
 
         # + Opções do Menu 2 → abre Menu 3
-        if bid == "op_mais3":
+        if bid_id == "op_mais3":
             SESS[wa_to] = {"route":"mais3","stage":"","data":{}}
             _send_buttons(wa_to, "Mais opções:", BTN_MAIS_3)
             return
 
         # ----- Menu 3
-        if bid == "op_endereco":
+        if bid_id == "op_endereco":
             txt = (
                 "📍 *Endereço*\n"
                 "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n\n"
@@ -395,19 +397,20 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
             return
 
-        if bid == "op_editar_endereco":
+        if bid_id == "op_editar_endereco":
+            # Mantido fluxo original de atualizar dados gerais via 'consulta'
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _send_text(wa_to, "Vamos atualizar seus dados. Primeiro:")
             _ask_forma(wa_to)
             _send_text(wa_to, "Se os botões não aparecerem, digite: *Convênio* ou *Particular*.")
             return
 
-        if bid == "op_mais4":
+        if bid_id == "op_mais4":
             SESS[wa_to] = {"route":"mais4","stage":"","data":{}}
             _send_buttons(wa_to, "Opções finais:", BTN_MAIS_4)
             return
 
-        if bid == "op_sugestoes":
+        if bid_id == "op_sugestoes":
             _send_text(wa_to, MSG_SUGESTOES)
             _send_buttons(wa_to, "Selecione uma opção:", [
                 {"id":"sug_especialidades","title":"Especialidades"},
@@ -416,31 +419,31 @@ def responder_evento_mensagem(entry: dict) -> None:
             ])
             return
 
-        if bid == "op_voltar_root":
+        if bid_id == "op_voltar_root":
             SESS[wa_to] = {"route":"root","stage":"","data":{}}
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
             return
 
-        if bid == "sug_especialidades":
+        if bid_id == "sug_especialidades":
             SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"especialidades"}}
             _send_text(wa_to, "Digite quais *especialidades* você gostaria que a clínica oferecesse:")
             return
 
-        if bid == "sug_exames":
+        if bid_id == "sug_exames":
             SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
             _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:")
             return
 
-        if bid in {"forma_convenio","forma_particular"}:
+        if bid_id in {"forma_convenio","forma_particular"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            ses["data"]["forma"] = "Convênio" if bid=="forma_convenio" else "Particular"
+            ses["data"]["forma"] = "Convênio" if bid_id=="forma_convenio" else "Particular"
             SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
-        if bid in {"pac_voce","pac_outro"}:
+        if bid_id in {"pac_voce","pac_outro"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            if bid == "pac_voce":
+            if bid_id == "pac_voce":
                 ses["stage"] = None
                 SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
@@ -452,9 +455,9 @@ def responder_evento_mensagem(entry: dict) -> None:
                 _send_text(wa_to, "Nome completo do paciente:")
                 return
 
-        if bid in {"pacdoc_sim","pacdoc_nao"}:
+        if bid_id in {"pacdoc_sim","pacdoc_nao"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            if bid == "pacdoc_sim":
+            if bid_id == "pacdoc_sim":
                 ses["stage"] = "paciente_doc"
                 SESS[wa_to] = ses
                 _send_text(wa_to, "Informe o CPF ou RG do paciente:")
@@ -466,9 +469,9 @@ def responder_evento_mensagem(entry: dict) -> None:
                 _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses)
                 return
 
-        if bid in {"confirmar","corrigir"}:
+        if bid_id in {"confirmar","corrigir"}:
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
-            if bid == "corrigir":
+            if bid_id == "corrigir":
                 SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
                 _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:")
                 _ask_forma(wa_to)
@@ -479,17 +482,17 @@ def responder_evento_mensagem(entry: dict) -> None:
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
-        if bid in {"compl_sim", "Sim", "SIM", "sim"}:
+        if bid_id == "compl_sim":
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
             ses["stage"] = "complemento"
             SESS[wa_to] = ses
             _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
             return
 
-        if bid in {"compl_nao", "Não", "Nao", "NAO", "nao", "não"}:
+        if bid_id == "compl_nao":
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
             ses["data"]["complemento"] = ""
-            ses["stage"] = None  # <<< limpa o estágio para não repetir a pergunta
+            ses["stage"] = None
             SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
@@ -548,7 +551,6 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
         return
-    
 # ===== PARTE 3 =================================================================
 # Auxiliares de Fluxo
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
@@ -567,7 +569,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
                 _send_text(wa_to, "Não localizei o CEP. Envie 8 dígitos ou informe o endereço completo.")
                 return
 
-    # Bifurcação do paciente (AJUSTE: adiada para depois da especialidade em 'consulta')
+    # Bifurcação do paciente (em 'consulta' só depois da especialidade)
     if route == "consulta" and data.get("forma") and data.get("especialidade") and not data.get("_pac_decidido"):
         data["_pac_decidido"] = True
         ses["stage"] = "paciente_escolha"
@@ -696,7 +698,7 @@ def _continue_form(ss, wa_to, ses, user_text):
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
-    # 3) Após número → perguntar complemento (botões) + fallback por texto
+    # 3) Após número → perguntar complemento (somente botões)
     if route in {"consulta","exames","editar_endereco"} and stage == "numero":
         ses["stage"] = "complemento_decisao"
         SESS[wa_to] = ses
