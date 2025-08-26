@@ -174,6 +174,12 @@ BTN_PACIENTE = [
     {"id": "pac_outro", "title": "Outro paciente"},
 ]
 
+# NOVO: possui documento do paciente (CPF/RG)?
+BTN_PAC_DOC = [
+    {"id": "pacdoc_sim", "title": "Sim"},
+    {"id": "pacdoc_nao", "title": "Não"},
+]
+
 # Mensagem do fluxo de sugestões
 MSG_SUGESTOES = (
     "💡 Ajude a Clínica Luma a melhorar! Diga quais *especialidades* ou *exames* "
@@ -386,11 +392,12 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
             return
 
-        # Editar endereço → AGORA vira Editar dados gerais (reset completo)
+        # Editar endereço → AGORA vira Editar dados gerais (reset completo) + fallback de texto
         if bid == "op_editar_endereco":
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _send_text(wa_to, "Vamos atualizar seus dados. Primeiro:")
             _ask_forma(wa_to)
+            _send_text(wa_to, "Se os botões não aparecerem, digite: *Convênio* ou *Particular*.")  # fallback
             return
 
         # + Opções do Menu 3 → abre Menu 4
@@ -448,6 +455,21 @@ def responder_evento_mensagem(entry: dict) -> None:
                 _send_text(wa_to, "Nome completo do paciente:")
                 return
 
+        # ----- possui documento do paciente? (botões)
+        if bid in {"pacdoc_sim","pacdoc_nao"}:
+            ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
+            if bid == "pacdoc_sim":
+                ses["stage"] = "paciente_doc"
+                SESS[wa_to] = ses
+                _send_text(wa_to, "Informe o CPF ou RG do paciente:")
+                return
+            else:
+                ses["data"]["paciente_documento"] = "Não possui"
+                ses["stage"] = None
+                SESS[wa_to] = ses
+                _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses)
+                return
+
         # ----- confirmação final
         if bid in {"confirmar","corrigir"}:
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
@@ -455,6 +477,7 @@ def responder_evento_mensagem(entry: dict) -> None:
                 SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
                 _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:")
                 _ask_forma(wa_to)
+                _send_text(wa_to, "Se os botões não aparecerem, digite: *Convênio* ou *Particular*.")  # fallback
                 return
             ses["data"]["_confirmado"] = True
             SESS[wa_to] = ses
@@ -638,9 +661,11 @@ def _continue_form(ss, wa_to, ses, user_text):
             err = _validate("nasc", txt)
             if err: _send_text(wa_to, err); return
             data["paciente_nasc"] = txt
-            ses["stage"] = "paciente_doc"
+            # NOVO: escolha por botões Sim/Não para documento
+            ses["stage"] = "paciente_doc_choice"
             SESS[wa_to] = ses
-            _send_text(wa_to, "CPF ou RG do paciente (se não tiver, digite 'Não possui'):")
+            _send_buttons(wa_to, "O paciente possui CPF ou RG?", BTN_PAC_DOC)
+            _send_text(wa_to, "Se os botões não aparecerem, digite: *Sim* ou *Não*.")  # fallback
             return
         if stage == "paciente_doc":
             data["paciente_documento"] = (user_text or "").strip()
@@ -649,11 +674,12 @@ def _continue_form(ss, wa_to, ses, user_text):
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
-    # 3) Após número → perguntar complemento (botões)
+    # 3) Após número → perguntar complemento (botões) + fallback
     if route in {"consulta","exames","editar_endereco"} and stage == "numero":
         ses["stage"] = "complemento_decisao"
         SESS[wa_to] = ses
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
+        _send_text(wa_to, "Se os botões não aparecerem, digite: *Sim* ou *Não*.")  # fallback
         return
 
     # 4) Decisão de complemento via TEXTO (sim/nao digitado)
