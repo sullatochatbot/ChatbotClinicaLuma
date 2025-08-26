@@ -114,6 +114,7 @@ def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
         }
     }
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
+
 # ===== Botões/UI =============================================================
 
 WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
@@ -308,6 +309,7 @@ def _question_for(route: str, key: str, d: Dict[str, Any]) -> str:
             return q
     # fallback genérico
     return "Por favor, informe o dado solicitado."
+
 # ===== Fechamentos ===========================================================
 FECHAMENTO = {
     "consulta":"✅ Obrigado! Atendente entrará em contato para confirmar a consulta.",
@@ -497,6 +499,21 @@ def responder_evento_mensagem(entry: dict) -> None:
         body = (msg.get("text", {}).get("body") or "").strip()
         low  = body.lower()
 
+        # --- FIX: decisão "paciente possui CPF/RG?" por TEXTO (Sim/Não) ------
+        ses_tmp = SESS.get(wa_to)
+        if ses_tmp and ses_tmp.get("route") in {"consulta","exames"} and ses_tmp.get("stage") == "paciente_doc_choice":
+            if _is_yes(low):
+                ses_tmp["stage"] = "paciente_doc"
+                SESS[wa_to] = ses_tmp
+                _send_text(wa_to, "Informe o CPF ou RG do paciente:")
+                return
+            if _is_no(low):
+                ses_tmp["data"]["paciente_documento"] = "Não possui"
+                ses_tmp["stage"] = None
+                SESS[wa_to] = ses_tmp
+                _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses_tmp)
+                return
+
         # sugestões: aguardando texto
         ses = SESS.get(wa_to)
         if ses and ses.get("route") == "sugestao" and ses.get("stage") == "await_text":
@@ -627,11 +644,20 @@ def _continue_form(ss, wa_to, ses, user_text):
         else:
             err = _validate(stage, user_text, data=data)
             if err:
-                # >>> Re-ask automático para evitar sensação de travamento
+                # Re-ask automático para evitar sensação de travamento
                 _send_text(wa_to, err)
                 _send_text(wa_to, _question_for(route, stage, data))
                 return
+
+            # salva valor normalizado
             data[stage] = user_text if stage in {"nasc", "cep"} else _normalize(stage, user_text)
+
+            # --- FIX: após CEP válido, perguntar NÚMERO imediatamente
+            if stage == "cep" and route in {"consulta","exames","editar_endereco"}:
+                ses["stage"] = "numero"
+                SESS[wa_to] = ses
+                _send_text(wa_to, "Informe o número:")
+                return
 
     # 2) Coleta do paciente quando for "outro"
     if data.get("_pac_outro"):
