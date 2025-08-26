@@ -1,5 +1,6 @@
 # responder_clinica.py — Clínica Luma
 # ==============================================================================
+# ==== PARTE 1 =================================================================
 import os, re, json, requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -65,8 +66,7 @@ def _hora_sp():
     return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
 
 _RE_CEP = re.compile(r"^\d{8}$")
-def _cep_ok(s):
-    return bool(_RE_CEP.match(re.sub(r"\D","",s or "")))
+def _cep_ok(s): return bool(_RE_CEP.match(re.sub(r"\D","",s or "")))
 
 def _via_cep(cep):
     cep = re.sub(r"\D","",cep or "")
@@ -76,8 +76,7 @@ def _via_cep(cep):
         j = r.json()
         if j.get("erro"): return None
         return j
-    except:
-        return None
+    except: return None
 
 def _montar_endereco_via_cep(cep, numero, complemento=""):
     data = _via_cep(cep)
@@ -115,38 +114,31 @@ def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
     }
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
 
-# ===== Botões/UI =============================================================
-
+# ===== Botões/UI ==============================================================
 WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
 
 def _welcome_named(name):
-    return (
-        f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}."
-        if name else WELCOME_GENERIC
-    )
+    return f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}." if name else WELCOME_GENERIC
 
-# Menu 1
 BTN_ROOT = [
     {"id": "op_consulta", "title": "Consulta"},
     {"id": "op_exames",   "title": "Exames"},
     {"id": "op_mais",     "title": "+ Opções"},
 ]
+# ==== PARTE 2 =================================================================
 
-# Menu 2 (Retorno / Resultado) – + Opções leva ao Menu 3
 BTN_MAIS_2 = [
     {"id": "op_retorno",    "title": "Retorno de consultas"},
     {"id": "op_resultado",  "title": "Resultado de exames"},
     {"id": "op_mais3",      "title": "+ Opções"}
 ]
 
-# Menu 3 (Endereço / Editar dados gerais) – + Opções leva ao Menu 4
 BTN_MAIS_3 = [
     {"id": "op_endereco",        "title": "Endereço"},
     {"id": "op_editar_endereco", "title": "Editar dados gerais"},
     {"id": "op_mais4",           "title": "+ Opções"}
 ]
 
-# Menu 4 (Sugestões | Voltar)
 BTN_MAIS_4 = [
     {"id": "op_sugestoes",   "title": "Sugestões"},
     {"id": "op_voltar_root", "title": "Voltar ao início"}
@@ -184,96 +176,55 @@ MSG_SUGESTOES = (
 
 # ===== Validadores e normalização ============================================
 _RE_CPF  = re.compile(r"\D")
-_RE_DATE = re.compile(r"^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/\d{4}$")
 
 def _cpf_clean(s): return _RE_CPF.sub("", s or "")
-def _date_ok(s):  return bool(_RE_DATE.match(s or ""))
-
-def _validate(key, v, *, data=None):
-    v = (v or "").strip()
-    if key=="cpf" and len(_cpf_clean(v))!=11:         return "CPF inválido."
-    if key=="nasc" and not _date_ok(v):               return "Data inválida. Use o formato dd/mm/aaaa."
-    if key=="convenio" and (data or {}).get("forma")=="Convênio" and not v: return "Informe o convênio."
-    if key=="cep" and not _cep_ok(v):                 return "CEP inválido (8 dígitos)."
-    if key=="numero" and not v:                       return "Informe o número."
-    if key in {"forma","nome","especialidade","exame"} and not v: return "Obrigatório."
-    return None
+def _cpf_ok(s): return len(_cpf_clean(s)) == 11
 
 def _normalize(key, v):
     v = (v or "").strip()
-    if key=="cpf":
-        return _cpf_clean(v)
+    if key=="cpf": return _cpf_clean(v)
     if key=="forma":
         l = v.lower()
         if "conv" in l: return "Convênio"
         if "part" in l: return "Particular"
-    if key == "nasc":
-        s = re.sub(r"\D", "", v)
-        if len(s) == 8:
-            return f"{s[:2]}/{s[2:4]}/{s[4:]}"
+    if key=="nasc":
+        s = re.sub(r"\D","",v)
+        if len(s)==8: return f"{s[:2]}/{s[2:4]}/{s[4:]}"
         return v
-    if key == "cep":
-        return re.sub(r"\D", "", v)[:8]
+    if key=="cep": return re.sub(r"\D","",v)[:8]
     return v
+
+def _validate(key, v, *, data=None):
+    v = (v or "").strip()
+    if key=="cpf" and not _cpf_ok(v): return "CPF inválido (11 dígitos)."
+    if key=="nasc" and len(re.sub(r"\D","",v))!=8: return "Data inválida. Use o formato dd/mm/aaaa."
+    if key=="convenio" and (data or {}).get("forma")=="Convênio" and not v: return "Informe o convênio."
+    if key=="cep" and not _cep_ok(v): return "CEP inválido (8 dígitos)."
+    if key=="numero" and not v: return "Informe o número."
+    if key in {"forma","nome","especialidade","exame"} and not v: return "Obrigatório."
+    return None
 
 def _ask_forma(to):
     _send_buttons(to, "Convênio ou Particular?", BTN_FORMA)
 
-# ===== YES/NO (texto) ========================================================
-def _is_yes(txt: str) -> bool:
-    return (txt or "").strip().lower() in {"sim","s","yes","y"}
-
-def _is_no(txt: str) -> bool:
-    return (txt or "").strip().lower() in {"nao","não","n","no"}
-
-# ===== Persistência ===========================================================
-def _upsert_paciente(ss, d):
-    ws  = ss.worksheet("Pacientes")
-    cpf = d.get("cpf")
-    if not cpf: return
-    col = ws.col_values(1)
-    if cpf in col: return
-    ws.append_row([
-        d.get("cpf",""), d.get("nome",""), d.get("nasc",""), d.get("endereco",""),
-        d.get("cep",""), d.get("numero",""), d.get("complemento",""),
-        d.get("forma",""), d.get("convenio",""), d.get("tipo",""), _hora_sp()
-    ], value_input_option="USER_ENTERED")
-
-def _add_solicitacao(ss, d):
-    ws = ss.worksheet("Solicitacoes")
-    ws.append_row([
-        _hora_sp(), d.get("tipo",""), d.get("forma",""), d.get("convenio",""),
-        d.get("cpf",""), d.get("nome",""), d.get("nasc",""),
-        d.get("especialidade",""), d.get("exame",""),
-        d.get("endereco",""), d.get("cep",""), d.get("numero",""),
-        d.get("complemento","")
-    ], value_input_option="USER_ENTERED")
-
-def _add_pesquisa(ss, d):
-    ws = ss.worksheet("Pesquisa")
-    ws.append_row([
-        _hora_sp(), d.get("cpf",""), d.get("nome",""), d.get("nasc",""), d.get("endereco",""),
-        d.get("cep",""), d.get("numero",""), d.get("complemento",""),
-        d.get("especialidade",""), d.get("exame","")
-    ], value_input_option="USER_ENTERED")
-
-def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
-    ws = ss.worksheet("Sugestoes")
-    ws.append_row([_hora_sp(), categoria, texto, wa_id], value_input_option="USER_ENTERED")
+# ===== YES/NO ================================================================
+def _is_yes(txt: str) -> bool: return (txt or "").strip().lower() in {"sim","s","yes","y"}
+def _is_no(txt: str)  -> bool: return (txt or "").strip().lower() in {"nao","não","n","no"}
 
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
 
-# ===== Campos dinâmicos + helper de pergunta ================================
+# ===== Campos ================================================================
 def _comuns_consulta(d):
     campos = [("forma","Convênio ou Particular?")]
     if d.get("forma")=="Convênio":
         campos.append(("convenio","Nome do convênio?"))
+    # Mudança: perguntar especialidade ANTES do nome
     campos += [
+        ("especialidade","Qual especialidade?"),
         ("nome","Informe seu nome completo:"),
         ("cpf","Informe seu CPF:"),
         ("nasc","Data de nascimento (dd/mm/aaaa):"),
-        ("especialidade","Qual especialidade?"),
         ("cep","Informe seu CEP (8 dígitos, ex: 03878000):"),
         ("numero","Informe o número:")
     ]
@@ -283,270 +234,20 @@ def _comuns_exames(d):
     campos = [("forma","Convênio ou Particular?")]
     if d.get("forma")=="Convênio":
         campos.append(("convenio","Nome do convênio?"))
+    # Mudança: perguntar exame ANTES do nome
     campos += [
+        ("exame","Qual exame?"),
         ("nome","Informe seu nome completo:"),
         ("cpf","Informe seu CPF:"),
         ("nasc","Data de nascimento (dd/mm/aaaa):"),
-        ("exame","Qual exame?"),
         ("cep","Informe seu CEP (8 dígitos, ex: 03878000):"),
         ("numero","Informe o número:")
     ]
     return campos
+# ============================================
+# PARTE 3 — Auxiliares de Fluxo + Continue Form
+# ============================================
 
-def _fields_for(route, d):
-    if route=="consulta":         return _comuns_consulta(d)
-    if route=="exames":           return _comuns_exames(d)
-    if route=="editar_endereco":  return [("cep","Informe seu CEP:"),("numero","Informe o número:")]
-    if route=="retorno":          return [("cpf","Informe o CPF:"), ("nasc","Data de nascimento (dd/mm/aaaa):")]
-    if route=="resultado":        return [("cpf","Informe o CPF:"), ("nasc","Data de nascimento (dd/mm/aaaa):")]
-    return None
-
-def _question_for(route: str, key: str, d: Dict[str, Any]) -> str:
-    """Retorna o texto da pergunta referente ao campo atual."""
-    fields = _fields_for(route, d) or []
-    for k, q in fields:
-        if k == key:
-            return q
-    # fallback genérico
-    return "Por favor, informe o dado solicitado."
-
-# ===== Fechamentos ===========================================================
-FECHAMENTO = {
-    "consulta":"✅ Obrigado! Atendente entrará em contato para confirmar a consulta.",
-    "exames":"✅ Perfeito! Atendente falará com você para agendar o exame."
-}
-
-# ===== Handler principal ======================================================
-def responder_evento_mensagem(entry: dict) -> None:
-    ss = _gspread()
-
-    val      = (entry.get("changes") or [{}])[0].get("value", {})
-    messages = val.get("messages", [])
-    contacts = val.get("contacts", [])
-
-    if not messages or not contacts:
-        return
-
-    msg          = messages[0]
-    wa_to        = contacts[0].get("wa_id") or msg.get("from")
-    profile_name = (contacts[0].get("profile") or {}).get("name") or ""
-    mtype        = msg.get("type")
-
-    # ===== INTERACTIVE =======================================================
-    if mtype == "interactive":
-        inter = msg.get("interactive", {})
-        br    = inter.get("button_reply") or {}
-        lr    = inter.get("list_reply") or {}
-        bid   = br.get("id") or br.get("title") or lr.get("id") or lr.get("title")
-
-        if not bid:
-            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
-            return
-
-        # ----- raiz (Menu 1)
-        if bid in {"op_consulta", "Consulta"}:
-            SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            _ask_forma(wa_to)
-            return
-
-        if bid in {"op_exames", "Exames"}:
-            SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}
-            _ask_forma(wa_to)
-            return
-
-        # + Opções do Menu 1 → abre Menu 2
-        if bid in {"op_mais", "+ Opções", "+ Opcoes"}:
-            SESS[wa_to] = {"route":"mais2","stage":"","data":{}}
-            _send_buttons(wa_to, "Outras opções:", BTN_MAIS_2)
-            return
-
-        # ----- Menu 2
-        if bid == "op_retorno":
-            SESS[wa_to] = {"route":"retorno","stage":"cpf","data":{"tipo":"retorno"}}
-            _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
-            return
-
-        if bid == "op_resultado":
-            SESS[wa_to] = {"route":"resultado","stage":"cpf","data":{"tipo":"resultado"}}
-            _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
-            return
-
-        # + Opções do Menu 2 → abre Menu 3
-        if bid == "op_mais3":
-            SESS[wa_to] = {"route":"mais3","stage":"","data":{}}
-            _send_buttons(wa_to, "Mais opções:", BTN_MAIS_3)
-            return
-
-        # ----- Menu 3
-        if bid == "op_endereco":
-            txt = (
-                "📍 *Endereço*\n"
-                "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n\n"
-                f"🌐 *Site*: {LINK_SITE}\n"
-                f"📷 *Instagram*: {LINK_INSTAGRAM}\n"
-                "📘 *Facebook*: Clinica Luma\n"
-                "☎️ *Telefone*: (11) 2043-9937\n"
-                "💬 *WhatsApp*: https://wa.me/5511968501810\n"
-                "✉️ *E-mail*: luma.centromed@gmail.com\n"
-            )
-            _send_text(wa_to, txt)
-            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
-            return
-
-        if bid == "op_editar_endereco":
-            SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            _send_text(wa_to, "Vamos atualizar seus dados. Primeiro:")
-            _ask_forma(wa_to)
-            _send_text(wa_to, "Se os botões não aparecerem, digite: *Convênio* ou *Particular*.")
-            return
-
-        if bid == "op_mais4":
-            SESS[wa_to] = {"route":"mais4","stage":"","data":{}}
-            _send_buttons(wa_to, "Opções finais:", BTN_MAIS_4)
-            return
-
-        if bid == "op_sugestoes":
-            _send_text(wa_to, MSG_SUGESTOES)
-            _send_buttons(wa_to, "Selecione uma opção:", [
-                {"id":"sug_especialidades","title":"Especialidades"},
-                {"id":"sug_exames","title":"Exames"},
-                {"id":"op_voltar_root","title":"Voltar ao início"},
-            ])
-            return
-
-        if bid == "op_voltar_root":
-            SESS[wa_to] = {"route":"root","stage":"","data":{}}
-            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
-            return
-
-        if bid == "sug_especialidades":
-            SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"especialidades"}}
-            _send_text(wa_to, "Digite quais *especialidades* você gostaria que a clínica oferecesse:")
-            return
-
-        if bid == "sug_exames":
-            SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
-            _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:")
-            return
-
-        if bid in {"forma_convenio","forma_particular"}:
-            ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            ses["data"]["forma"] = "Convênio" if bid=="forma_convenio" else "Particular"
-            SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
-            return
-
-        if bid in {"pac_voce","pac_outro"}:
-            ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            if bid == "pac_voce":
-                ses["stage"] = None
-                SESS[wa_to] = ses
-                _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
-                return
-            else:
-                ses["data"]["_pac_outro"] = True
-                ses["stage"] = "paciente_nome"
-                SESS[wa_to] = ses
-                _send_text(wa_to, "Nome completo do paciente:")
-                return
-
-        if bid in {"pacdoc_sim","pacdoc_nao"}:
-            ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            if bid == "pacdoc_sim":
-                ses["stage"] = "paciente_doc"
-                SESS[wa_to] = ses
-                _send_text(wa_to, "Informe o CPF ou RG do paciente:")
-                return
-            else:
-                ses["data"]["paciente_documento"] = "Não possui"
-                ses["stage"] = None
-                SESS[wa_to] = ses
-                _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses)
-                return
-
-        if bid in {"confirmar","corrigir"}:
-            ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
-            if bid == "corrigir":
-                SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-                _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:")
-                _ask_forma(wa_to)
-                _send_text(wa_to, "Se os botões não aparecerem, digite: *Convênio* ou *Particular*.")
-                return
-            ses["data"]["_confirmado"] = True
-            SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
-            return
-
-        if bid in {"compl_sim", "Sim", "SIM", "sim"}:
-            ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
-            ses["stage"] = "complemento"
-            SESS[wa_to] = ses
-            _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
-            return
-
-        if bid in {"compl_nao", "Não", "Nao", "NAO", "nao", "não"}:
-            ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
-            ses["data"]["complemento"] = ""
-            SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
-            return
-
-        _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
-        return
-
-    # ===== TEXTO ==============================================================
-    if mtype == "text":
-        body = (msg.get("text", {}).get("body") or "").strip()
-        low  = body.lower()
-
-        # --- FIX: decisão "paciente possui CPF/RG?" por TEXTO (Sim/Não) ------
-        ses_tmp = SESS.get(wa_to)
-        if ses_tmp and ses_tmp.get("route") in {"consulta","exames"} and ses_tmp.get("stage") == "paciente_doc_choice":
-            if _is_yes(low):
-                ses_tmp["stage"] = "paciente_doc"
-                SESS[wa_to] = ses_tmp
-                _send_text(wa_to, "Informe o CPF ou RG do paciente:")
-                return
-            if _is_no(low):
-                ses_tmp["data"]["paciente_documento"] = "Não possui"
-                ses_tmp["stage"] = None
-                SESS[wa_to] = ses_tmp
-                _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses_tmp)
-                return
-
-        # sugestões: aguardando texto
-        ses = SESS.get(wa_to)
-        if ses and ses.get("route") == "sugestao" and ses.get("stage") == "await_text":
-            categoria = ses["data"].get("categoria","")
-            texto = body.strip()
-            if not texto:
-                _send_text(wa_to, "Pode digitar sua sugestão, por favor?")
-                return
-            _add_sugestao(ss, categoria, texto, wa_to)
-            _send_text(wa_to, "🙏 Obrigado pela sugestão! Ela nos ajuda a melhorar a cada dia.")
-            SESS[wa_to] = {"route":"root","stage":"","data":{}}
-            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
-            return
-
-        ses = SESS.get(wa_to)
-        active_routes = {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"}
-        if ses and ses.get("route") in active_routes and ses.get("stage"):
-            _continue_form(_gspread(), wa_to, ses, body)
-            return
-
-        # atalhos por texto
-        if "consulta" in low:
-            SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            _ask_forma(wa_to); return
-
-        if "exame" in low:
-            SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}
-            _ask_forma(wa_to); return
-
-        _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
-        return
-
-# ===== Auxiliares de Fluxo ====================================================
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     route = ses.get("route")
     data  = ses.get("data", {})
@@ -558,9 +259,10 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
             if end:
                 data["endereco"] = end
             else:
+                # CEP inválido → volta para CEP (evita “travamento”)
                 ses["stage"] = "cep"
                 SESS[wa_to] = ses
-                _send_text(wa_to, "Não localizei o CEP. Envie 8 dígitos ou informe o endereço completo.")
+                _send_text(wa_to, "Não localizei o CEP. Envie 8 dígitos (ex: 03878000) ou informe o endereço completo.")
                 return
 
     # Bifurcação paciente (logo após definirmos 'forma')
@@ -581,12 +283,12 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
             f"Forma: {data.get('forma','')}  Convênio: {data.get('convenio','') or '-'}",
         ]
         if data.get("_pac_outro"):
-            resumo += [
+            resumo.append(
                 f"Paciente: {data.get('paciente_nome','')}  Nasc: {data.get('paciente_nasc','')}  Doc: {data.get('paciente_documento','') or '-'}"
-            ]
-        if route=="consulta":
+            )
+        if route == "consulta":
             resumo.append(f"Especialidade: {data.get('especialidade','')}")
-        if route=="exames":
+        if route == "exames":
             resumo.append(f"Exame: {data.get('exame','')}")
         _send_text(wa_to, "✅ Confirme seus dados:\n" + "\n".join(resumo))
         _send_buttons(wa_to, "Está correto?", BTN_CONFIRMA)
@@ -594,13 +296,14 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         SESS[wa_to] = ses
         return
 
-    # Checar pendências (perguntar próximo campo)
+    # Checar pendências → perguntar próximo campo
     if pend:
         next_key, question = pend[0]
         ses["stage"] = next_key
         SESS[wa_to] = ses
         if next_key == "forma":
-            _ask_forma(wa_to); return
+            _ask_forma(wa_to)
+            return
         _send_text(wa_to, question)
         return
 
@@ -628,14 +331,21 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
     _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
 
-# ===== Continue form (inclui complemento e paciente "outro") ==================
+
 def _continue_form(ss, wa_to, ses, user_text):
+    """
+    Avança o formulário campo a campo, com foco em:
+      - Não travar após CPF, nascimento, número, complemento.
+      - Reperguntar automaticamente em caso de erro.
+      - Fallback para SIM/NÃO por texto quando os botões não carregarem.
+    """
     route = ses["route"]
     stage = ses.get("stage","")
     data  = ses["data"]
 
     # 1) Campo atual → normaliza/valida/salva
     if stage:
+        # Normalização antes de validar (evita erro bobo prender o fluxo)
         if stage in {"nasc", "cep"}:
             user_text = _normalize(stage, user_text)
 
@@ -644,15 +354,15 @@ def _continue_form(ss, wa_to, ses, user_text):
         else:
             err = _validate(stage, user_text, data=data)
             if err:
-                # Re-ask automático para evitar sensação de travamento
+                # Re-ask automático do mesmo campo (anti-trava)
                 _send_text(wa_to, err)
                 _send_text(wa_to, _question_for(route, stage, data))
                 return
 
-            # salva valor normalizado
+            # Salva valor normalizado
             data[stage] = user_text if stage in {"nasc", "cep"} else _normalize(stage, user_text)
 
-            # --- FIX: após CEP válido, perguntar NÚMERO imediatamente
+            # Após CEP válido, perguntar NÚMERO imediatamente (anti-limbo)
             if stage == "cep" and route in {"consulta","exames","editar_endereco"}:
                 ses["stage"] = "numero"
                 SESS[wa_to] = ses
@@ -667,6 +377,7 @@ def _continue_form(ss, wa_to, ses, user_text):
             SESS[wa_to] = ses
             _send_text(wa_to, "Data de nascimento do paciente (dd/mm/aaaa):")
             return
+
         if stage == "paciente_nasc":
             txt = _normalize("nasc", user_text)
             err = _validate("nasc", txt)
@@ -680,6 +391,7 @@ def _continue_form(ss, wa_to, ses, user_text):
             _send_buttons(wa_to, "O paciente possui CPF ou RG?", BTN_PAC_DOC)
             _send_text(wa_to, "Se os botões não aparecerem, digite: *Sim* ou *Não*.")  # fallback
             return
+
         if stage == "paciente_doc":
             data["paciente_documento"] = (user_text or "").strip()
             ses["stage"] = None
@@ -687,7 +399,7 @@ def _continue_form(ss, wa_to, ses, user_text):
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
-    # 3) Após número → perguntar complemento (botões) + fallback
+    # 3) Após número → perguntar complemento (botões) + fallback por texto
     if route in {"consulta","exames","editar_endereco"} and stage == "numero":
         ses["stage"] = "complemento_decisao"
         SESS[wa_to] = ses
@@ -708,12 +420,12 @@ def _continue_form(ss, wa_to, ses, user_text):
             SESS[wa_to] = ses
             _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
             return
-        # resposta inválida → reexibe opções
+        # Resposta inválida → reexibe opções (anti-trava)
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
         _send_text(wa_to, "Se preferir, digite: *Sim* ou *Não*.")
         return
 
-    # 5) Texto do complemento → finaliza
+    # 5) Texto do complemento → finaliza endereço e segue
     if stage == "complemento":
         data["complemento"] = (user_text or "").strip()
         ses["stage"] = None
@@ -721,7 +433,7 @@ def _continue_form(ss, wa_to, ses, user_text):
         _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
         return
 
-    # 6) Fluxos de pesquisa
+    # 6) Fluxo de pesquisa (quando usado)
     if route == "pesquisa":
         needed = ["nome","cpf","nasc","endereco","especialidade","exame"]
         for k in needed:
@@ -731,7 +443,7 @@ def _continue_form(ss, wa_to, ses, user_text):
                 _send_text(wa_to, {
                     "nome":"Informe seu nome completo:",
                     "cpf":"Informe seu CPF:",
-                    "nasc":"Data de nascimento:",
+                    "nasc":"Data de nascimento (dd/mm/aaaa):",
                     "endereco":"Informe seu endereço completo:",
                     "especialidade":"Qual especialidade você procura?",
                     "exame":"Qual exame você procura?"
@@ -743,5 +455,5 @@ def _continue_form(ss, wa_to, ses, user_text):
         _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
         return
 
-    # 7) Continuação padrão
+    # 7) Continuação padrão (sem travar)
     _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
