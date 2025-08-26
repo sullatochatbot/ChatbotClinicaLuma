@@ -490,6 +490,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
             ses["data"]["complemento"] = ""
             SESS[wa_to] = ses
+            ses["stage"] = None  # << limpa o estágio para não repetir a pergunta
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
@@ -547,6 +548,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
         return
+    
 # ===== PARTE 3 =================================================================
 # Auxiliares de Fluxo
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
@@ -686,7 +688,6 @@ def _continue_form(ss, wa_to, ses, user_text):
             ses["stage"] = "paciente_doc_choice"
             SESS[wa_to] = ses
             _send_buttons(wa_to, "O paciente possui CPF ou RG?", BTN_PAC_DOC)
-            _send_text(wa_to, "Se os botões não aparecerem, digite: *Sim* ou *Não*.")  # fallback
             return
         if stage == "paciente_doc":
             data["paciente_documento"] = (user_text or "").strip()
@@ -700,7 +701,6 @@ def _continue_form(ss, wa_to, ses, user_text):
         ses["stage"] = "complemento_decisao"
         SESS[wa_to] = ses
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
-        _send_text(wa_to, "Se os botões não aparecerem, digite: *Sim* ou *Não*.")  # fallback
         return
 
     # 4) Decisão de complemento via TEXTO (sim/nao)
@@ -717,7 +717,6 @@ def _continue_form(ss, wa_to, ses, user_text):
             _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
             return
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
-        _send_text(wa_to, "Se preferir, digite: *Sim* ou *Não*.")
         return
 
     # 5) Texto do complemento → finaliza
