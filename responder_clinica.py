@@ -639,6 +639,13 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
     _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
+
+    # 🔒 Encerramento: para CONSULTA não reabrir o menu
+    if route == "consulta":
+        SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
+        return
+
+    # Mantém comportamento atual para outros fluxos (ex.: exames)
     SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
     _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
 
@@ -698,10 +705,16 @@ def _continue_form(ss, wa_to, ses, user_text):
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
-    # 3) Após número → perguntar complemento (somente botões)
+    # 3) Após número → perguntar complemento (botões + fallback em texto)
     if route in {"consulta","exames","editar_endereco"} and stage == "numero":
+        # garante que o número foi salvo e não está vazio
+        if not data.get("numero"):
+            _send_text(wa_to, "Informe o número (ou S/N):")
+            return
         ses["stage"] = "complemento_decisao"
         SESS[wa_to] = ses
+    # Envia um texto curto + os botões; isso força o WhatsApp a renderizar imediatamente
+        _send_text(wa_to, "Possui complemento (apto, bloco, sala)? Responda pelos botões ou digite Sim/Não.")
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
         return
 
