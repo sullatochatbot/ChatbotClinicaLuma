@@ -188,7 +188,18 @@ _RE_CPF  = re.compile(r"\D")
 _RE_DATE = re.compile(r"^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/\d{4}$")
 
 def _cpf_clean(s): return _RE_CPF.sub("", s or "")
-def _date_ok(s):  return bool(_RE_DATE.match(s or ""))
+def _date_ok(s: str) -> bool:
+    try:
+        raw = (s or "").strip()
+        # aceita com / ou - ou só dígitos
+        dig = re.sub(r"\D", "", raw)
+        if len(dig) == 8:
+            datetime.strptime(f"{dig[:2]}/{dig[2:4]}/{dig[4:]}", "%d/%m/%Y")
+            return True
+        datetime.strptime(raw.replace("-", "/"), "%d/%m/%Y")
+        return True
+    except Exception:
+        return False
 
 def _validate(key, v, *, data=None):
     v = (v or "").strip()
@@ -212,7 +223,7 @@ def _normalize(key, v):
         s = re.sub(r"\D", "", v)
         if len(s) == 8:
             return f"{s[:2]}/{s[2:4]}/{s[4:]}"
-        return v
+        return (v or "").replace("-", "/")
     if key == "cep":
         return re.sub(r"\D", "", v)[:8]
     return v
@@ -402,7 +413,6 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _send_text(wa_to, "Vamos atualizar seus dados. Primeiro:")
             _ask_forma(wa_to)
-            _send_text(wa_to, "Se os botões não aparecerem, digite: *Convênio* ou *Particular*.")
             return
 
         if bid_id == "op_mais4":
@@ -474,8 +484,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             if bid_id == "corrigir":
                 SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
                 _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:")
-                _ask_forma(wa_to)
-                _send_text(wa_to, "Se os botões não aparecerem, digite: *Convênio* ou *Particular*.")
+                _ask_forma(wa_to)  
                 return
             ses["data"]["_confirmado"] = True
             SESS[wa_to] = ses
