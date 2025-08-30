@@ -529,6 +529,23 @@ def responder_evento_mensagem(entry: dict) -> None:
                 _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses_tmp)
                 return
 
+        # ⬇️ NOVO: fallback caso o WhatsApp entregue "Eu mesmo(a)" / "Outro paciente" como TEXTO
+        ses_tmp = SESS.get(wa_to)
+        if ses_tmp and ses_tmp.get("route") in {"consulta","exames"} and ses_tmp.get("stage") == "paciente_escolha":
+            if "mesmo" in low:
+                ses_tmp["stage"] = None
+                SESS[wa_to] = ses_tmp
+                _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses_tmp)
+                return
+            if "outro" in low or "dependente" in low or "filho" in low:
+                ses_tmp["data"]["_pac_outro"] = True
+                ses_tmp["stage"] = "paciente_nome"
+                SESS[wa_to] = ses_tmp
+                _send_text(wa_to, "Nome completo do paciente:")
+                return
+            _send_buttons(wa_to, "O atendimento é para você mesmo(a) ou para outro paciente (filho/dependente)?", BTN_PACIENTE)
+            return
+
         # sugestões: aguardando texto
         ses = SESS.get(wa_to)
         if ses and ses.get("route") == "sugestao" and ses.get("stage") == "await_text":
@@ -547,6 +564,10 @@ def responder_evento_mensagem(entry: dict) -> None:
         active_routes = {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"}
         if ses and ses.get("route") in active_routes and ses.get("stage"):
             _continue_form(_gspread(), wa_to, ses, body)
+            return
+        ses = SESS.get(wa_to)
+        if ses and ses.get("route") in {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"} and not ses.get("stage"):
+            _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses)
             return
 
         # atalhos por texto
