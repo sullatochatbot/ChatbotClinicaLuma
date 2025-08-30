@@ -655,7 +655,6 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         _add_solicitacao(ss, data)
         _send_text(wa_to, "✅ Recebido! Nossa equipe vai verificar e te retornar.")
         SESS[wa_to] = {"route":"root","stage":"","data":{}}
-        _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
         return
 
     # editar_endereco → apenas registra atualização
@@ -664,7 +663,6 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         _add_solicitacao(ss, d)
         _send_text(wa_to, f"✅ Endereço atualizado e registrado:\n{data.get('endereco','')}")
         SESS[wa_to] = {"route":"root","stage":"","data":data}
-        _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
         return
 
     # Sem pendências: salvar (consulta/exames)
@@ -672,14 +670,13 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     _add_solicitacao(ss, data)
     _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
 
-    # 🔒 Encerramento: para CONSULTA não reabrir o menu
-    if route == "consulta":
+    # 🔒 Encerramento: para CONSULTA e EXAMES não reabrir o menu
+    if route in {"consulta","exames"}:
         SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
         return
 
     # Mantém comportamento atual para outros fluxos (ex.: exames)
     SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
-    _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
 
 # Continue form (inclui complemento e paciente "outro")
 def _continue_form(ss, wa_to, ses, user_text):
