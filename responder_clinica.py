@@ -326,8 +326,8 @@ def _question_for(route: str, key: str, d: Dict[str, Any]) -> str:
 
 # ===== Fechamentos ============================================================
 FECHAMENTO = {
-    "consulta":"✅ Obrigado! Atendente entrará em contato para confirmar a consulta.",
-    "exames":"✅ Perfeito! Atendente falará com você para agendar o exame."
+    "consulta":"✅ Obrigado! Por favor, aguarde que uma atendente entrará em contato para confirmar a consulta.",
+    "exames":"✅ Perfeito! Por favor, aguarde que uma atendente entrará em contato com você para agendar o exame."
 }
 
 # ===== Handler principal (Webhook) ============================================
@@ -402,6 +402,7 @@ def responder_evento_mensagem(entry: dict) -> None:
                 "📘 *Facebook*: Clinica Luma\n"
                 "☎️ *Telefone*: (11) 2043-9937\n"
                 "💬 *WhatsApp*: https://wa.me/5511968501810\n"
+                "💬 *WhatsApp*: https://wa.me/5511975379655\n"
                 "✉️ *E-mail*: luma.centromed@gmail.com\n"
             )
             _send_text(wa_to, txt)
@@ -581,6 +582,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
         return
+
 # ===== PARTE 3 =================================================================
 # Auxiliares de Fluxo
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
@@ -743,8 +745,7 @@ def _continue_form(ss, wa_to, ses, user_text):
             return
         ses["stage"] = "complemento_decisao"
         SESS[wa_to] = ses
-    # Envia um texto curto + os botões; isso força o WhatsApp a renderizar imediatamente
-        _send_text(wa_to, "Possui complemento (apto, bloco, sala)? Responda pelos botões ou digite Sim/Não.")
+    # Apenas os botões (sem mensagem antes)
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
         return
 
