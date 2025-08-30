@@ -558,7 +558,6 @@ def responder_evento_mensagem(entry: dict) -> None:
             _add_sugestao(ss, categoria, texto, wa_to)
             _send_text(wa_to, "🙏 Obrigado pela sugestão! Ela nos ajuda a melhorar a cada dia.")
             SESS[wa_to] = {"route":"root","stage":"","data":{}}
-            _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
             return
 
         ses = SESS.get(wa_to)
@@ -789,7 +788,6 @@ def _continue_form(ss, wa_to, ses, user_text):
         _add_pesquisa(ss, data)
         _send_text(wa_to, "Obrigado! Pesquisa registrada.")
         SESS[wa_to] = {"route":"root","stage":"","data":{}}
-        _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
         return
 
     # 7) Continuação padrão
