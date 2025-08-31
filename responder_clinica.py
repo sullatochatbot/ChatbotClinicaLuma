@@ -73,7 +73,7 @@ def _cep_ok(s):
 def _via_cep(cep):
     cep = re.sub(r"\D","",cep or "")
     try:
-        r = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=10)
+        r = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=4)
         if r.status_code >= 300: return None
         j = r.json()
         if j.get("erro"): return None
@@ -477,7 +477,7 @@ def responder_evento_mensagem(entry: dict) -> None:
                 ses["data"]["paciente_documento"] = "Não possui"
                 ses["stage"] = None
                 SESS[wa_to] = ses
-                _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses)
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
 
         if bid_id in {"confirmar","corrigir"}:
@@ -527,7 +527,7 @@ def responder_evento_mensagem(entry: dict) -> None:
                 ses_tmp["data"]["paciente_documento"] = "Não possui"
                 ses_tmp["stage"] = None
                 SESS[wa_to] = ses_tmp
-                _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses_tmp)
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses_tmp)
                 return
 
         # ⬇️ NOVO: fallback caso o WhatsApp entregue "Eu mesmo(a)" / "Outro paciente" como TEXTO
@@ -536,7 +536,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             if "mesmo" in low:
                 ses_tmp["stage"] = None
                 SESS[wa_to] = ses_tmp
-                _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses_tmp)
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses_tmp)
                 return
             if "outro" in low or "dependente" in low or "filho" in low:
                 ses_tmp["data"]["_pac_outro"] = True
@@ -563,11 +563,11 @@ def responder_evento_mensagem(entry: dict) -> None:
         ses = SESS.get(wa_to)
         active_routes = {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"}
         if ses and ses.get("route") in active_routes and ses.get("stage"):
-            _continue_form(_gspread(), wa_to, ses, body)
+            _continue_form(ss, wa_to, ses, body)
             return
         ses = SESS.get(wa_to)
         if ses and ses.get("route") in {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"} and not ses.get("stage"):
-            _finaliza_ou_pergunta_proximo(_gspread(), wa_to, ses)
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
         # atalhos por texto
