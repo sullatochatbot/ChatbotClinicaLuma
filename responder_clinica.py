@@ -37,7 +37,8 @@ def _gspread():
     ss = gc.open_by_key(CLINICA_SHEET_ID)
 
     _ensure_ws(ss, "Pacientes", [
-        "cpf","nome","nasc","endereco","cep","numero","complemento",
+        "cpf","nome","nasc","endereco","contato","whatsapp_nome",
+        "cep","numero","complemento",
         "forma","convenio","tipo","created_at"
     ])
     _ensure_ws(ss, "Solicitacoes", [
@@ -247,6 +248,7 @@ def _upsert_paciente(ss, d):
     if cpf in col: return
     ws.append_row([
         d.get("cpf",""), d.get("nome",""), d.get("nasc",""), d.get("endereco",""),
+        d.get("contato",""), d.get("whatsapp_nome",""),
         d.get("cep",""), d.get("numero",""), d.get("complemento",""),
         d.get("forma",""), d.get("convenio",""), d.get("tipo",""), _hora_sp()
     ], value_input_option="USER_ENTERED")
@@ -345,6 +347,11 @@ def responder_evento_mensagem(entry: dict) -> None:
     wa_to        = contacts[0].get("wa_id") or msg.get("from")
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
     mtype        = msg.get("type")
+
+    # 🔹 injeta telefone e nome do WhatsApp na sessão (fica disponível até salvar)
+    SESS.setdefault(wa_to, {"route":"root","stage":"","data":{}})
+    SESS[wa_to]["data"]["contato"] = wa_to
+    SESS[wa_to]["data"]["whatsapp_nome"] = profile_name
 
     # ===== INTERACTIVE =======================================================
     if mtype == "interactive":
