@@ -220,7 +220,7 @@ def _especialidade_menu_texto():
     linhas = ["Escolha a especialidade digitando o *número* correspondente:"]
     for i, nome in enumerate(ESPECIALIDADES_ORDER, start=1):
         linhas.append(f"{i:>2}) {nome}")
-    linhas.append("\nEx.: digite 1 para Clínico Geral, 14 para Pediatria, etc.")
+    linhas.append("\nEx.: digite 2 para Clínico Geral, 14 para Pediatria, etc.")
     return "\n".join(linhas)
 
 def _ask_especialidade_num(wa_to, ses):
