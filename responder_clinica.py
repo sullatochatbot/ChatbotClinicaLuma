@@ -8,8 +8,8 @@ from typing import Dict, Any, List
 # ===== Variáveis de ambiente ==================================================
 WA_ACCESS_TOKEN         = os.getenv("WA_ACCESS_TOKEN", "").strip() or os.getenv("ACCESS_TOKEN", "").strip()
 WA_PHONE_NUMBER_ID      = os.getenv("WA_PHONE_NUMBER_ID", "").strip() or os.getenv("PHONE_NUMBER_ID", "").strip()
-CLINICA_SHEET_ID        = os.getenv("CLINICA_SHEET_ID", "").strip()
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+CLINICA_SHEETS_URL    = os.getenv("CLINICA_SHEETS_URL", "").strip()
+CLINICA_SHEETS_SECRET = os.getenv("CLINICA_SHEETS_SECRET", "").strip()
 
 NOME_EMPRESA   = os.getenv("NOME_EMPRESA", "Clínica Luma").strip()
 LINK_SITE      = os.getenv("LINK_SITE", "https://www.lumaclinicadafamilia.com.br").strip()
@@ -18,48 +18,66 @@ LINK_INSTAGRAM = os.getenv("LINK_INSTAGRAM", "https://www.instagram.com/luma_cli
 GRAPH_URL = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages" if WA_PHONE_NUMBER_ID else ""
 HEADERS   = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}", "Content-Type": "application/json"}
 
-# ===== Google Sheets ==========================================================
-import gspread
-from google.oauth2.service_account import Credentials
+# ===== Persistência via WebApp (novo) ========================================
 
-def _gspread():
-    if not GOOGLE_CREDENTIALS_JSON or not CLINICA_SHEET_ID:
-        raise RuntimeError("Faltam GOOGLE_CREDENTIALS_JSON ou CLINICA_SHEET_ID no .env")
-
-    info = json.loads(GOOGLE_CREDENTIALS_JSON)
-    creds = Credentials.from_service_account_info(info, scopes=[
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ])
-    gc = gspread.authorize(creds)
-    ss = gc.open_by_key(CLINICA_SHEET_ID)
-
-    _ensure_ws(ss, "Pacientes", [
-        "cpf","nome","nasc","endereco","contato","whatsapp_nome",
-        "cep","numero","complemento",
-        "forma","convenio","tipo","created_at"
-    ])
-    _ensure_ws(ss, "Solicitacoes", [
-        "timestamp","tipo","forma","convenio","cpf","nome","nasc",
-        "especialidade","exame","endereco","cep","numero","complemento"
-    ])
-    _ensure_ws(ss, "Pesquisa", [
-        "timestamp","cpf","nome","nasc","endereco","cep","numero","complemento",
-        "especialidade","exame"
-    ])
-    _ensure_ws(ss, "Sugestoes", ["timestamp","categoria","texto","wa_id"])
-    return ss
-
-def _ensure_ws(ss, title, headers):
+def _post_webapp(payload: dict) -> dict:
+    """Envia JSON para o WebApp (rota 'captacao')."""
+    if not (CLINICA_SHEETS_URL and CLINICA_SHEETS_SECRET):
+        print("[SHEETS] Config ausente (CLINICA_SHEETS_URL/SECRET).")
+        return {"ok": False, "erro": "config ausente"}
+    data = {"secret": CLINICA_SHEETS_SECRET, "rota": "captacao"}
+    data.update(payload)
     try:
-        ws = ss.worksheet(title)
-    except gspread.WorksheetNotFound:
-        ws = ss.add_worksheet(title=title, rows="1000", cols=str(len(headers)+2))
-        ws.insert_row(headers, index=1)
-    else:
-        if ws.row_values(1) != headers:
-            ws.resize(rows=max(ws.row_count, 1000), cols=len(headers))
-            ws.update(f"A1:{chr(64+len(headers))}1", [headers])
+        r = requests.post(CLINICA_SHEETS_URL, json=data, timeout=12)
+        r.raise_for_status()
+        j = r.json()
+        print("[SHEETS] resp:", j)
+        return j
+    except Exception as e:
+        print("[SHEETS] erro:", e)
+        return {"ok": False, "erro": str(e)}
+
+def _map_to_captacao(d: dict) -> dict:
+    """Converte o 'data' do fluxo para os campos do WebApp."""
+    forma = (d.get("forma") or "").strip().lower()
+    tipo  = "convenio" if "conv" in forma else ("particular" if "part" in forma else "")
+    espec_ex = d.get("especialidade") or d.get("exame") or d.get("tipo") or ""
+    return {
+        "fone": (d.get("contato") or "").strip(),
+        "nome_cap": (d.get("whatsapp_nome") or "").strip(),
+        "especialidade_exame": espec_ex,
+        "tipo": tipo,
+        "paciente_nome": d.get("paciente_nome") or d.get("nome") or "",
+        "paciente_cpf": d.get("cpf") or "",
+        "paciente_nasc": d.get("nasc") or "",
+        "responsavel_nome": d.get("responsavel_nome") or "",
+        "responsavel_cpf": d.get("responsavel_cpf") or "",
+        "responsavel_nasc": d.get("responsavel_nasc") or "",
+        "cep": d.get("cep") or "",
+        "endereco": d.get("endereco") or "",
+        "numero": d.get("numero") or "",
+        "complemento": d.get("complemento") or "",
+        # "auto_refino": False,  # descomente se não quiser semear captação_refinada
+    }
+
+# Mantém as assinaturas usadas no resto do código:
+def _upsert_paciente(ss, d):
+    return
+
+def _add_solicitacao(ss, d):
+    _post_webapp(_map_to_captacao(d))
+
+def _add_pesquisa(ss, d):
+    dd = dict(d)
+    dd["tipo"] = dd.get("tipo") or "pesquisa"
+    if dd.get("especialidade"):
+        dd["especialidade"] = f"Pesquisa: {dd['especialidade']}"
+    elif dd.get("exame"):
+        dd["exame"] = f"Pesquisa: {dd['exame']}"
+    _post_webapp(_map_to_captacao(dd))
+
+def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
+    print("[Sugestao]", categoria, texto, wa_id)
 
 # ===== Utilitários ============================================================
 def _hora_sp():
@@ -365,7 +383,7 @@ FECHAMENTO = {
 }
 # ===== Handler principal ======================================================
 def responder_evento_mensagem(entry: dict) -> None:
-    ss = _gspread()
+    ss = None  # mantemos a assinatura das funções chamadas
 
     val      = (entry.get("changes") or [{}])[0].get("value", {})
     messages = val.get("messages", [])
