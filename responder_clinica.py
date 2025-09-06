@@ -1,4 +1,4 @@
-# responder_clinica.py — Clínica Luma (fix: paginação 2+Mais e Exames cedo)
+# responder_clinica.py — Clínica Luma (Especialidades = LISTA INTERATIVA; Exames = botões)
 # ==============================================================================
 
 import os, re, json, requests
@@ -104,8 +104,7 @@ def _send_text(to: str, text: str):
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
 
 def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
-    # WhatsApp aceita no máx 3 botões por mensagem
-    btns = buttons[:3]
+    btns = buttons[:3]  # WhatsApp: máx 3
     if not (WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID):
         print("[MOCK→WA BTNS]", to, body, btns)
         return
@@ -119,6 +118,35 @@ def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
     }
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
 
+def _send_list(to: str, header: str, body: str, footer: str, sections: List[Dict[str,Any]], button_text="Escolher"):
+    """
+    Envia LISTA INTERATIVA (até ~10 itens por seção; múltiplas seções).
+    sections = [
+      {"title": "Seção 1", "rows": [{"id":"esp_x","title":"Nome","description":""}, ...]},
+      {"title": "Seção 2", "rows": [...]}
+    ]
+    """
+    if not (WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID):
+        print("[MOCK→WA LIST]", to, header, body, sections)
+        return
+    payload = {
+        "messaging_product":"whatsapp","to":to,"type":"interactive",
+        "interactive":{
+            "type":"list",
+            "header":{"type":"text","text":header[:60]},
+            "body":{"text":body[:1024]},
+            "footer":{"text":footer[:60]} if footer else None,
+            "action":{
+                "button": button_text[:20],
+                "sections": sections
+            }
+        }
+    }
+    # remove footer None (WhatsApp não aceita chave com None)
+    if payload["interactive"]["footer"] is None:
+        del payload["interactive"]["footer"]
+    requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
+
 # ===== Botões/UI ==============================================================
 WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
 
@@ -128,28 +156,24 @@ def _welcome_named(name):
         if name else WELCOME_GENERIC
     )
 
-# Menu 1
 BTN_ROOT = [
     {"id": "op_consulta", "title": "Consulta"},
     {"id": "op_exames",   "title": "Exames"},
     {"id": "op_mais",     "title": "+ Opções"},
 ]
 
-# Menu 2 (+ Opções do menu 1)
 BTN_MAIS_2 = [
     {"id": "op_retorno",    "title": "Retorno de consultas"},
     {"id": "op_resultado",  "title": "Resultado de exames"},
     {"id": "op_mais3",      "title": "+ Opções"}
 ]
 
-# Menu 3 (+ Opções do menu 2)
 BTN_MAIS_3 = [
     {"id": "op_endereco",        "title": "Endereço"},
     {"id": "op_editar_endereco", "title": "Editar dados gerais"},
     {"id": "op_mais4",           "title": "+ Opções"}
 ]
 
-# Menu 4 (+ Opções do menu 3)
 BTN_MAIS_4 = [
     {"id": "op_sugestoes",   "title": "Sugestões"},
     {"id": "op_voltar_root", "title": "Voltar ao início"}
@@ -185,7 +209,7 @@ MSG_SUGESTOES = (
     "você gostaria que tivéssemos."
 )
 
-# ===== NOVO: Especialidades e Exames (paginação corrigida 2 + ▶ Mais) =========
+# ===== Catálogos ==============================================================
 ESPECIALIDADES_LABELS = {
     "esp_clinico_geral":      "Clínico Geral",
     "esp_pediatria":          "Pediatria",
@@ -211,76 +235,38 @@ EXAMES_LABELS = {
     "exm_raio_x":        "Raio X",
 }
 
+def _rows(ids):
+    return [{"id": i, "title": ESPECIALIDADES_LABELS[i]} for i in ids]
+
+def _ask_especialidade_list(to):
+    # Seção 1 (até 10)
+    sec1_ids = [
+        "esp_clinico_geral","esp_pediatria","esp_neuropediatria","esp_psiquiatria",
+        "esp_geriatria","esp_cardiologia","esp_endocrinologia","esp_med_trabalho",
+        "esp_nutrologia"
+    ]
+    # Seção 2 (restante)
+    sec2_ids = [
+        "esp_dermato_estetica","esp_gastro","esp_ortopedia","esp_fonoaudiologia",
+        "esp_fisioterapia","esp_psicologia","esp_nutricao","esp_terapia_aba"
+    ]
+    sections = [
+        {"title":"Especialidades A–L", "rows": _rows(sec1_ids)},
+        {"title":"Especialidades M–Z", "rows": _rows(sec2_ids)},
+    ]
+    _send_list(
+        to,
+        header="Especialidades",
+        body="Selecione a especialidade desejada:",
+        footer="Clínica Luma",
+        sections=sections,
+        button_text="Escolher"
+    )
+
 def _btns(*pairs):
     return [{"id": p, "title": t} for (p, t) in pairs]
 
-def _ask_especialidade_page(to, page_id):
-    # Paginação 2 especialidades + "▶ Mais" (3º botão)
-    if page_id == "esp_p1":
-        _send_buttons(to, "Escolha a especialidade:", _btns(
-            ("esp_clinico_geral", ESPECIALIDADES_LABELS["esp_clinico_geral"]),
-            ("esp_pediatria",     ESPECIALIDADES_LABELS["esp_pediatria"]),
-            ("esp_next_p2",       "▶ Mais")
-        )); return
-
-    if page_id == "esp_p2":
-        _send_buttons(to, "Mais especialidades:", _btns(
-            ("esp_neuropediatria", ESPECIALIDADES_LABELS["esp_neuropediatria"]),
-            ("esp_psiquiatria",    ESPECIALIDADES_LABELS["esp_psiquiatria"]),
-            ("esp_next_p3",        "▶ Mais")
-        )); return
-
-    if page_id == "esp_p3":
-        _send_buttons(to, "Mais especialidades:", _btns(
-            ("esp_geriatria",   ESPECIALIDADES_LABELS["esp_geriatria"]),
-            ("esp_cardiologia", ESPECIALIDADES_LABELS["esp_cardiologia"]),
-            ("esp_next_p4",     "▶ Mais")
-        )); return
-
-    if page_id == "esp_p4":
-        _send_buttons(to, "Mais especialidades:", _btns(
-            ("esp_endocrinologia", ESPECIALIDADES_LABELS["esp_endocrinologia"]),
-            ("esp_med_trabalho",   ESPECIALIDADES_LABELS["esp_med_trabalho"]),
-            ("esp_next_p5",        "▶ Mais")
-        )); return
-
-    if page_id == "esp_p5":
-        _send_buttons(to, "Mais especialidades:", _btns(
-            ("esp_nutrologia",       ESPECIALIDADES_LABELS["esp_nutrologia"]),
-            ("esp_dermato_estetica", ESPECIALIDADES_LABELS["esp_dermato_estetica"]),
-            ("esp_next_p6",          "▶ Mais")
-        )); return
-
-    if page_id == "esp_p6":
-        _send_buttons(to, "Mais especialidades:", _btns(
-            ("esp_gastro",    ESPECIALIDADES_LABELS["esp_gastro"]),
-            ("esp_ortopedia", ESPECIALIDADES_LABELS["esp_ortopedia"]),
-            ("esp_next_p7",   "▶ Mais")
-        )); return
-
-    if page_id == "esp_p7":
-        _send_buttons(to, "Mais especialidades:", _btns(
-            ("esp_fonoaudiologia", ESPECIALIDADES_LABELS["esp_fonoaudiologia"]),
-            ("esp_fisioterapia",   ESPECIALIDADES_LABELS["esp_fisioterapia"]),
-            ("esp_next_p8",        "▶ Mais")
-        )); return
-
-    if page_id == "esp_p8":
-        _send_buttons(to, "Mais especialidades:", _btns(
-            ("esp_psicologia", ESPECIALIDADES_LABELS["esp_psicologia"]),
-            ("esp_nutricao",   ESPECIALIDADES_LABELS["esp_nutricao"]),
-            ("esp_next_p9",    "▶ Mais")
-        )); return
-
-    # esp_p9 (última)
-    _send_buttons(to, "Mais especialidades:", _btns(
-        ("esp_terapia_aba",  ESPECIALIDADES_LABELS["esp_terapia_aba"]),
-        ("op_voltar_root",   "⤴ Início"),
-        ("esp_p1",           "↩ Voltar pág. 1")
-    ))
-
 def _ask_exames(to):
-    # 2 opções + Início (3 botões)
     _send_buttons(to, "Selecione o tipo de exame:", _btns(
         ("exm_laboratoriais", EXAMES_LABELS["exm_laboratoriais"]),
         ("exm_raio_x",        EXAMES_LABELS["exm_raio_x"]),
@@ -289,7 +275,6 @@ def _ask_exames(to):
 
 # ===== Validadores e normalização ============================================
 _RE_CPF  = re.compile(r"\D")
-
 def _cpf_clean(s): return _RE_CPF.sub("", s or "")
 
 def _date_ok(s: str) -> bool:
@@ -334,13 +319,6 @@ def _normalize(key, v):
 def _ask_forma(to):
     _send_buttons(to, "Convênio ou Particular?", BTN_FORMA)
 
-# ===== YES/NO (texto) =========================================================
-def _is_yes(txt: str) -> bool:
-    return (txt or "").strip().lower() in {"sim","s","yes","y"}
-
-def _is_no(txt: str) -> bool:
-    return (txt or "").strip().lower() in {"nao","não","n","no"}
-
 # ===== Persistência ===========================================================
 def _upsert_paciente(ss, d):
     ws  = ss.worksheet("Pacientes")
@@ -380,7 +358,7 @@ def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
 
-# ===== Campos dinâmicos e fluxo ==============================================
+# ===== Campos dinâmicos / Fluxo ==============================================
 def _comuns_consulta(d):
     campos = [("forma","Convênio ou Particular?")]
     if d.get("forma")=="Convênio":
@@ -400,7 +378,7 @@ def _comuns_exames(d):
     campos = [("forma","Convênio ou Particular?")]
     if d.get("forma")=="Convênio":
         campos.append(("convenio","Nome do convênio?"))
-    # >>> Alterado: Exame logo após forma/convênio <<<
+    # Exame logo após forma/convênio
     campos += [
         ("exame","Qual exame?"),
         ("nome","Informe seu nome completo:"),
@@ -431,7 +409,7 @@ FECHAMENTO = {
     "exames":"✅ Perfeito! Por favor, aguarde que uma atendente entrará em contato com você para agendar o exame."
 }
 
-# ===== Handler principal (Webhook) ============================================
+# ===== Handler principal ======================================================
 def responder_evento_mensagem(entry: dict) -> None:
     ss = _gspread()
 
@@ -471,12 +449,11 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}
             _ask_forma(wa_to); return
 
-        # + Opções do Menu 1 → abre Menu 2
+        # + Opções → Menus adicionais
         if bid_id == "op_mais":
             SESS[wa_to] = {"route":"mais2","stage":"","data":{}}
             _send_buttons(wa_to, "Outras opções:", BTN_MAIS_2); return
 
-        # ----- Menu 2
         if bid_id == "op_retorno":
             SESS[wa_to] = {"route":"retorno","stage":"cpf","data":{"tipo":"retorno"}}
             _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:"); return
@@ -485,12 +462,10 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"resultado","stage":"cpf","data":{"tipo":"resultado"}}
             _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:"); return
 
-        # + Opções do Menu 2 → abre Menu 3
         if bid_id == "op_mais3":
             SESS[wa_to] = {"route":"mais3","stage":"","data":{}}
             _send_buttons(wa_to, "Mais opções:", BTN_MAIS_3); return
 
-        # ----- Menu 3
         if bid_id == "op_endereco":
             txt = (
                 "📍 *Endereço*\n"
@@ -535,11 +510,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
             _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:"); return
 
-        # ===== ESPECIALIDADES: navegação e seleção (2+Mais) ===================
-        if bid_id in {"esp_next_p2","esp_next_p3","esp_next_p4","esp_next_p5","esp_next_p6","esp_next_p7","esp_next_p8","esp_next_p9","esp_p1"}:
-            page = "esp_p1" if bid_id=="esp_p1" else bid_id.replace("esp_next_", "esp_p")
-            _ask_especialidade_page(wa_to, page); return
-
+        # ===== ESPECIALIDADES (LIST REPLY) ====================================
         if bid_id.startswith("esp_"):
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
             if ses.get("route") != "consulta":
@@ -549,7 +520,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
-        # ===== EXAMES: seleção imediata =======================================
+        # ===== EXAMES (BUTTON REPLY) ==========================================
         if bid_id in {"exm_laboratoriais","exm_raio_x"}:
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
             if ses.get("route") != "exames":
@@ -558,8 +529,8 @@ def responder_evento_mensagem(entry: dict) -> None:
             ses["stage"] = None
             SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
-        # =======================================================================
 
+        # ===== FORMAS / PACIENTE / DOC / CONFIRMA =============================
         if bid_id in {"forma_convenio","forma_particular"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             ses["data"]["forma"] = "Convênio" if bid_id=="forma_convenio" else "Particular"
@@ -620,32 +591,20 @@ def responder_evento_mensagem(entry: dict) -> None:
         body = (msg.get("text", {}).get("body") or "").strip()
         low  = body.lower()
 
+        # decisões simples por texto (quando bot perguntou)
         ses_tmp = SESS.get(wa_to)
         if ses_tmp and ses_tmp.get("route") in {"consulta","exames"} and ses_tmp.get("stage") == "paciente_doc_choice":
-            if _is_yes(low):
+            if low in {"sim","s","yes","y"}:
                 ses_tmp["stage"] = "paciente_doc"
                 SESS[wa_to] = ses_tmp
                 _send_text(wa_to, "Informe o CPF ou RG do paciente:"); return
-            if _is_no(low):
+            if low in {"nao","não","n","no"}:
                 ses_tmp["data"]["paciente_documento"] = "Não possui"
                 ses_tmp["stage"] = None
                 SESS[wa_to] = ses_tmp
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses_tmp); return
 
-        ses_tmp = SESS.get(wa_to)
-        if ses_tmp and ses_tmp.get("route") in {"consulta","exames"} and ses_tmp.get("stage") == "paciente_escolha":
-            if "mesmo" in low:
-                ses_tmp["stage"] = None
-                SESS[wa_to] = ses_tmp
-                _finaliza_ou_pergunta_proximo(ss, wa_to, ses_tmp); return
-            if "outro" in low or "dependente" in low or "filho" in low:
-                ses_tmp["data"]["_pac_outro"] = True
-                ses_tmp["stage"] = "paciente_nome"
-                SESS[wa_to] = ses_tmp
-                _send_text(wa_to, "Nome completo do paciente:"); return
-            _send_buttons(wa_to, "O atendimento é para você mesmo(a) ou para outro paciente (filho/dependente)?", BTN_PACIENTE); return
-
-        # sugestões: aguardando texto
+        # sugestões aguardando texto
         ses = SESS.get(wa_to)
         if ses and ses.get("route") == "sugestao" and ses.get("stage") == "await_text":
             categoria = ses["data"].get("categoria","")
@@ -657,25 +616,26 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"root","stage":"","data":{}}
             return
 
+        # fluxo ativo por texto
         ses = SESS.get(wa_to)
         active_routes = {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"}
         if ses and ses.get("route") in active_routes and ses.get("stage"):
             _continue_form(ss, wa_to, ses, body); return
         ses = SESS.get(wa_to)
-        if ses and ses.get("route") in {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"} and not ses.get("stage"):
+        if ses and ses.get("route") in active_routes and not ses.get("stage"):
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
+        # atalhos
         if "consulta" in low:
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _ask_forma(wa_to); return
-
         if "exame" in low:
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}
             _ask_forma(wa_to); return
 
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT); return
 
-# ===== Fluxo: decidir próximo passo / salvar =================================
+# ===== Decidir próximo passo / salvar ========================================
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     route = ses.get("route")
     data  = ses.get("data", {})
@@ -690,13 +650,12 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
                 ses["stage"] = "cep"; SESS[wa_to] = ses
                 _send_text(wa_to, "Não localizei o CEP. Envie 8 dígitos ou informe o endereço completo."); return
 
-    # Bifurcação do paciente (consulta) após especialidade escolhida
+    # Bifurcação paciente após escolha
     if route == "consulta" and data.get("forma") and data.get("especialidade") and not data.get("_pac_decidido"):
         data["_pac_decidido"] = True
         ses["stage"] = "paciente_escolha"; SESS[wa_to] = ses
         _send_buttons(wa_to, "O atendimento é para você mesmo(a) ou para outro paciente (filho/dependente)?", BTN_PACIENTE); return
 
-    # Para 'exames', bifurcação logo após exame escolhido
     if route == "exames" and data.get("forma") and data.get("exame") and not data.get("_pac_decidido"):
         data["_pac_decidido"] = True
         ses["stage"] = "paciente_escolha"; SESS[wa_to] = ses
@@ -724,7 +683,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         next_key, question = pend[0]
         ses["stage"] = next_key; SESS[wa_to] = ses
         if next_key == "forma": _ask_forma(wa_to); return
-        if route == "consulta" and next_key == "especialidade": _ask_especialidade_page(wa_to, "esp_p1"); return
+        if route == "consulta" and next_key == "especialidade": _ask_especialidade_list(wa_to); return
         if route == "exames"   and next_key == "exame":          _ask_exames(wa_to); return
         _send_text(wa_to, question); return
 
@@ -753,16 +712,16 @@ def _continue_form(ss, wa_to, ses, user_text):
     stage = ses.get("stage","")
     data  = ses["data"]
 
-    # Reexibir botões quando aguardando especialidade/exame
+    # Se aguardando especialidade/exame, reabrir UI correta
     if (route == "consulta" and stage == "especialidade"):
-        _ask_especialidade_page(wa_to, "esp_p1"); return
+        _ask_especialidade_list(wa_to); return
     if (route == "exames" and stage == "exame"):
         _ask_exames(wa_to); return
 
+    # Campo atual
     if stage:
         if stage in {"nasc", "cep"}:
             user_text = _normalize(stage, user_text)
-
         if stage == "forma":
             data["forma"] = _normalize("forma", user_text)
         else:
@@ -775,6 +734,7 @@ def _continue_form(ss, wa_to, ses, user_text):
                 ses["stage"] = "numero"; SESS[wa_to] = ses
                 _send_text(wa_to, "Informe o número:"); return
 
+    # Paciente "outro"
     if data.get("_pac_outro"):
         if stage == "paciente_nome":
             data["paciente_nome"] = (user_text or "").strip()
@@ -794,6 +754,7 @@ def _continue_form(ss, wa_to, ses, user_text):
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
+    # Endereço
     if route in {"consulta","exames","editar_endereco"} and stage == "numero":
         if not data.get("numero"):
             _send_text(wa_to, "Informe o número (ou S/N):"); return
@@ -801,11 +762,12 @@ def _continue_form(ss, wa_to, ses, user_text):
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO); return
 
     if stage == "complemento_decisao":
-        if _is_no(user_text):
+        l = (user_text or "").strip().lower()
+        if l in {"nao","não","n","no"}:
             data["complemento"] = ""
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
-        if _is_yes(user_text):
+        if l in {"sim","s","yes","y"}:
             ses["stage"] = "complemento"; SESS[wa_to] = ses
             _send_text(wa_to, "Digite o complemento (apto, bloco, sala):"); return
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO); return
@@ -815,6 +777,7 @@ def _continue_form(ss, wa_to, ses, user_text):
         ses["stage"] = None; SESS[wa_to] = ses
         _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
+    # Pesquisa (se usar)
     if route == "pesquisa":
         needed = ["nome","cpf","nasc","endereco","especialidade","exame"]
         for k in needed:
