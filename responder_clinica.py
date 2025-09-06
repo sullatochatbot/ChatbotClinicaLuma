@@ -1,6 +1,5 @@
-# responder_clinica.py — Clínica Luma (Especialidades = LISTA INTERATIVA; Exames = botões)
+# responder_clinica.py — Clínica Luma (Especialidades: lista numerada por texto)
 # ==============================================================================
-
 import os, re, json, requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -118,35 +117,6 @@ def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
     }
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
 
-def _send_list(to: str, header: str, body: str, footer: str, sections: List[Dict[str,Any]], button_text="Escolher"):
-    """
-    Envia LISTA INTERATIVA (até ~10 itens por seção; múltiplas seções).
-    sections = [
-      {"title": "Seção 1", "rows": [{"id":"esp_x","title":"Nome","description":""}, ...]},
-      {"title": "Seção 2", "rows": [...]}
-    ]
-    """
-    if not (WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID):
-        print("[MOCK→WA LIST]", to, header, body, sections)
-        return
-    payload = {
-        "messaging_product":"whatsapp","to":to,"type":"interactive",
-        "interactive":{
-            "type":"list",
-            "header":{"type":"text","text":header[:60]},
-            "body":{"text":body[:1024]},
-            "footer":{"text":footer[:60]} if footer else None,
-            "action":{
-                "button": button_text[:20],
-                "sections": sections
-            }
-        }
-    }
-    # remove footer None (WhatsApp não aceita chave com None)
-    if payload["interactive"]["footer"] is None:
-        del payload["interactive"]["footer"]
-    requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
-
 # ===== Botões/UI ==============================================================
 WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
 
@@ -209,59 +179,11 @@ MSG_SUGESTOES = (
     "você gostaria que tivéssemos."
 )
 
-# ===== Catálogos ==============================================================
-ESPECIALIDADES_LABELS = {
-    "esp_clinico_geral":      "Clínico Geral",
-    "esp_pediatria":          "Pediatria",
-    "esp_neuropediatria":     "Neuropediatria",
-    "esp_psiquiatria":        "Psiquiatria",
-    "esp_geriatria":          "Geriatria",
-    "esp_cardiologia":        "Cardiologia",
-    "esp_endocrinologia":     "Endocrinologia",
-    "esp_med_trabalho":       "Medicina do Trabalho",
-    "esp_nutrologia":         "Nutrologia",
-    "esp_dermato_estetica":   "Dermatologia e Estética",
-    "esp_gastro":             "Gastroenterologia",
-    "esp_ortopedia":          "Ortopedia",
-    "esp_fonoaudiologia":     "Fonoaudiologia",
-    "esp_fisioterapia":       "Fisioterapia",
-    "esp_psicologia":         "Psicologia",
-    "esp_nutricao":           "Nutrição",
-    "esp_terapia_aba":        "Terapia ABA",
-}
-
+# ===== Catálogos (Exames com botões; Especialidades via lista numerada) ======
 EXAMES_LABELS = {
     "exm_laboratoriais": "Exames Laboratoriais",
     "exm_raio_x":        "Raio X",
 }
-
-def _rows(ids):
-    return [{"id": i, "title": ESPECIALIDADES_LABELS[i]} for i in ids]
-
-def _ask_especialidade_list(to):
-    # Seção 1 (até 10)
-    sec1_ids = [
-        "esp_clinico_geral","esp_pediatria","esp_neuropediatria","esp_psiquiatria",
-        "esp_geriatria","esp_cardiologia","esp_endocrinologia","esp_med_trabalho",
-        "esp_nutrologia"
-    ]
-    # Seção 2 (restante)
-    sec2_ids = [
-        "esp_dermato_estetica","esp_gastro","esp_ortopedia","esp_fonoaudiologia",
-        "esp_fisioterapia","esp_psicologia","esp_nutricao","esp_terapia_aba"
-    ]
-    sections = [
-        {"title":"Especialidades A–L", "rows": _rows(sec1_ids)},
-        {"title":"Especialidades M–Z", "rows": _rows(sec2_ids)},
-    ]
-    _send_list(
-        to,
-        header="Especialidades",
-        body="Selecione a especialidade desejada:",
-        footer="Clínica Luma",
-        sections=sections,
-        button_text="Escolher"
-    )
 
 def _btns(*pairs):
     return [{"id": p, "title": t} for (p, t) in pairs]
@@ -272,6 +194,39 @@ def _ask_exames(to):
         ("exm_raio_x",        EXAMES_LABELS["exm_raio_x"]),
         ("op_voltar_root",    "⤴ Início"),
     ))
+
+# ===== Especialidades: lista numerada (digitando o número) ====================
+ESPECIALIDADES_ORDER = [
+    "Clínico Geral",
+    "Pediatria",
+    "Neuropediatria",
+    "Psiquiatria",
+    "Geriatria",
+    "Cardiologia",
+    "Endocrinologia",
+    "Medicina do Trabalho",
+    "Nutrologia",
+    "Dermatologia e Estética",
+    "Gastroenterologia",
+    "Ortopedia",
+    "Fonoaudiologia",
+    "Fisioterapia",
+    "Psicologia",
+    "Nutrição",
+    "Terapia ABA",
+]
+
+def _especialidade_menu_texto():
+    linhas = ["Escolha a especialidade digitando o *número* correspondente:"]
+    for i, nome in enumerate(ESPECIALIDADES_ORDER, start=1):
+        linhas.append(f"{i:>2}) {nome}")
+    linhas.append("\nEx.: digite 1 para Clínico Geral, 2 para Pediatria, etc.")
+    return "\n".join(linhas)
+
+def _ask_especialidade_num(wa_to, ses):
+    ses["stage"] = "especialidade_num"
+    SESS[wa_to] = ses
+    _send_text(wa_to, _especialidade_menu_texto())
 
 # ===== Validadores e normalização ============================================
 _RE_CPF  = re.compile(r"\D")
@@ -408,7 +363,6 @@ FECHAMENTO = {
     "consulta":"✅ Obrigado! Por favor, aguarde que uma atendente entrará em contato para confirmar a consulta.",
     "exames":"✅ Perfeito! Por favor, aguarde que uma atendente entrará em contato com você para agendar o exame."
 }
-
 # ===== Handler principal ======================================================
 def responder_evento_mensagem(entry: dict) -> None:
     ss = _gspread()
@@ -510,16 +464,6 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
             _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:"); return
 
-        # ===== ESPECIALIDADES (LIST REPLY) ====================================
-        if bid_id.startswith("esp_"):
-            ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
-            if ses.get("route") != "consulta":
-                ses = {"route":"consulta","stage":"especialidade","data":{"tipo":"consulta"}}
-            ses["data"]["especialidade"] = ESPECIALIDADES_LABELS.get(bid_id, "Especialidade")
-            ses["stage"] = None
-            SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
-
         # ===== EXAMES (BUTTON REPLY) ==========================================
         if bid_id in {"exm_laboratoriais","exm_raio_x"}:
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
@@ -534,6 +478,17 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid_id in {"forma_convenio","forma_particular"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             ses["data"]["forma"] = "Convênio" if bid_id=="forma_convenio" else "Particular"
+
+            # CONSULTA: abrir lista numerada já no próximo passo
+            if ses.get("route") == "consulta":
+                if ses["data"]["forma"] == "Convênio" and not ses["data"].get("convenio"):
+                    ses["stage"] = "convenio"
+                    SESS[wa_to] = ses
+                    _send_text(wa_to, "Qual o nome do convênio?")
+                    return
+                _ask_especialidade_num(wa_to, ses)
+                return
+
             SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
@@ -634,7 +589,6 @@ def responder_evento_mensagem(entry: dict) -> None:
             _ask_forma(wa_to); return
 
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT); return
-
 # ===== Decidir próximo passo / salvar ========================================
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     route = ses.get("route")
@@ -683,7 +637,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         next_key, question = pend[0]
         ses["stage"] = next_key; SESS[wa_to] = ses
         if next_key == "forma": _ask_forma(wa_to); return
-        if route == "consulta" and next_key == "especialidade": _ask_especialidade_list(wa_to); return
+        if route == "consulta" and next_key == "especialidade": _ask_especialidade_num(wa_to, ses); return
         if route == "exames"   and next_key == "exame":          _ask_exames(wa_to); return
         _send_text(wa_to, question); return
 
@@ -700,7 +654,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
 
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
-    _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
+    _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrado." if route else "Solicitação registrada."))
     if route in {"consulta","exames"}:
         SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
         return
@@ -712,9 +666,9 @@ def _continue_form(ss, wa_to, ses, user_text):
     stage = ses.get("stage","")
     data  = ses["data"]
 
-    # Se aguardando especialidade/exame, reabrir UI correta
+    # Reabrir UI correta se estiver aguardando
     if (route == "consulta" and stage == "especialidade"):
-        _ask_especialidade_list(wa_to); return
+        _ask_especialidade_num(wa_to, ses); return
     if (route == "exames" and stage == "exame"):
         _ask_exames(wa_to); return
 
@@ -729,7 +683,15 @@ def _continue_form(ss, wa_to, ses, user_text):
             if err:
                 _send_text(wa_to, err)
                 _send_text(wa_to, _question_for(route, stage, data)); return
+
             data[stage] = user_text if stage in {"nasc", "cep"} else _normalize(stage, user_text)
+
+            # 👉 Convênio informado → abrir lista numerada
+            if route == "consulta" and stage == "convenio":
+                _ask_especialidade_num(wa_to, ses)
+                return
+
+            # CEP válido → pedir número
             if stage == "cep" and route in {"consulta","exames","editar_endereco"}:
                 ses["stage"] = "numero"; SESS[wa_to] = ses
                 _send_text(wa_to, "Informe o número:"); return
@@ -777,6 +739,36 @@ def _continue_form(ss, wa_to, ses, user_text):
         ses["stage"] = None; SESS[wa_to] = ses
         _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
+    # Escolha da ESPECIALIDADE por número (ou aproximação por texto)
+    if route == "consulta" and stage == "especialidade_num":
+        txt = (user_text or "").strip()
+        m = re.match(r"^\s*(\d{1,2})\s*$", txt)
+        if m:
+            idx = int(m.group(1))
+            if 1 <= idx <= len(ESPECIALIDADES_ORDER):
+                ses["data"]["especialidade"] = ESPECIALIDADES_ORDER[idx-1]
+                ses["stage"] = None
+                SESS[wa_to] = ses
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+                return
+            else:
+                _send_text(wa_to, f"O número {idx} não está na lista. Tente novamente.")
+                _send_text(wa_to, _especialidade_menu_texto())
+                return
+
+        alvo = txt.lower()
+        match = next((nome for nome in ESPECIALIDADES_ORDER if alvo in nome.lower()), None)
+        if match:
+            ses["data"]["especialidade"] = match
+            ses["stage"] = None
+            SESS[wa_to] = ses
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+            return
+
+        _send_text(wa_to, "Não entendi. Digite apenas o número da especialidade.")
+        _send_text(wa_to, _especialidade_menu_texto())
+        return
+
     # Pesquisa (se usar)
     if route == "pesquisa":
         needed = ["nome","cpf","nasc","endereco","especialidade","exame"]
@@ -795,4 +787,5 @@ def _continue_form(ss, wa_to, ses, user_text):
         _send_text(wa_to, "Obrigado! Pesquisa registrada.")
         SESS[wa_to] = {"route":"root","stage":"","data":{}}; return
 
+    # Continuação padrão
     _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
