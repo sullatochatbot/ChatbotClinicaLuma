@@ -197,22 +197,22 @@ def _ask_exames(to):
 
 # ===== Especialidades: lista numerada (digitando o número) ====================
 ESPECIALIDADES_ORDER = [
-    "Clínico Geral",
-    "Pediatria",
-    "Neuropediatria",
-    "Psiquiatria",
-    "Geriatria",
     "Cardiologia",
-    "Endocrinologia",
-    "Medicina do Trabalho",
-    "Nutrologia",
+    "Clínico Geral",
     "Dermatologia e Estética",
-    "Gastroenterologia",
-    "Ortopedia",
-    "Fonoaudiologia",
+    "Endocrinologia",
     "Fisioterapia",
-    "Psicologia",
+    "Fonoaudiologia",
+    "Gastroenterologia",
+    "Geriatria",
+    "Medicina do Trabalho",
+    "Neuropediatria",
     "Nutrição",
+    "Nutrologia",
+    "Ortopedia",
+    "Pediatria",
+    "Psiquiatria",
+    "Psicologia",
     "Terapia ABA",
 ]
 
@@ -519,12 +519,17 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid_id in {"confirmar","corrigir"}:
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
             if bid_id == "corrigir":
-                SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
+                # Mantém o fluxo em que o usuário estava (consulta OU exames)
+                tipo_atual = (ses.get("data") or {}).get("tipo") or ("consulta" if ses.get("route")=="consulta" else "exames")
+                nova_route = "exames" if tipo_atual == "exames" else "consulta"
+                SESS[wa_to] = {"route": nova_route, "stage": "forma", "data": {"tipo": nova_route}}
                 _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:")
-                _ask_forma(wa_to); return
+                _ask_forma(wa_to)
+                return
             ses["data"]["_confirmado"] = True
             SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+            return
 
         if bid_id == "compl_sim":
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
