@@ -184,6 +184,90 @@ MSG_SUGESTOES = (
     "você gostaria que tivéssemos."
 )
 
+# ===== NOVO: Especialidades e Exames (botões/paginação) =======================
+ESPECIALIDADES_LABELS = {
+    "esp_clinico_geral":      "Clínico Geral",
+    "esp_pediatria":          "Pediatria",
+    "esp_neuropediatria":     "Neuropediatria",
+    "esp_psiquiatria":        "Psiquiatria",
+    "esp_geriatria":          "Geriatria",
+    "esp_cardiologia":        "Cardiologia",
+    "esp_endocrinologia":     "Endocrinologia",
+    "esp_med_trabalho":       "Medicina do Trabalho",
+    "esp_nutrologia":         "Nutrologia",
+    "esp_dermato_estetica":   "Dermatologia e Estética",
+    "esp_gastro":             "Gastroenterologia",
+    "esp_ortopedia":          "Ortopedia",
+    "esp_fonoaudiologia":     "Fonoaudiologia",
+    "esp_fisioterapia":       "Fisioterapia",
+    "esp_psicologia":         "Psicologia",
+    "esp_nutricao":           "Nutrição",
+    "esp_terapia_aba":        "Terapia ABA",
+}
+
+EXAMES_LABELS = {
+    "exm_laboratoriais": "Exames Laboratoriais",
+    "exm_raio_x":        "Raio X",
+}
+
+def _btns(*pairs):
+    return [{"id": p, "title": t} for (p, t) in pairs]
+
+def _ask_especialidade_page(to, page_id):
+    if page_id == "esp_p1":
+        _send_buttons(to, "Escolha a especialidade:", _btns(
+            ("esp_clinico_geral", ESPECIALIDADES_LABELS["esp_clinico_geral"]),
+            ("esp_pediatria",     ESPECIALIDADES_LABELS["esp_pediatria"]),
+            ("esp_neuropediatria",ESPECIALIDADES_LABELS["esp_neuropediatria"]),
+        ) + _btns(("esp_next_p2", "Mais opções ▶")))
+        return
+
+    if page_id == "esp_p2":
+        _send_buttons(to, "Mais especialidades:", _btns(
+            ("esp_psiquiatria", ESPECIALIDADES_LABELS["esp_psiquiatria"]),
+            ("esp_geriatria",   ESPECIALIDADES_LABELS["esp_geriatria"]),
+            ("esp_cardiologia", ESPECIALIDADES_LABELS["esp_cardiologia"]),
+        ) + _btns(("esp_next_p3", "Mais opções ▶")))
+        return
+
+    if page_id == "esp_p3":
+        _send_buttons(to, "Mais especialidades:", _btns(
+            ("esp_endocrinologia", ESPECIALIDADES_LABELS["esp_endocrinologia"]),
+            ("esp_med_trabalho",   ESPECIALIDADES_LABELS["esp_med_trabalho"]),
+            ("esp_nutrologia",     ESPECIALIDADES_LABELS["esp_nutrologia"]),
+        ) + _btns(("esp_next_p4", "Mais opções ▶")))
+        return
+
+    if page_id == "esp_p4":
+        _send_buttons(to, "Mais especialidades:", _btns(
+            ("esp_dermato_estetica", ESPECIALIDADES_LABELS["esp_dermato_estetica"]),
+            ("esp_gastro",           ESPECIALIDADES_LABELS["esp_gastro"]),
+            ("esp_ortopedia",        ESPECIALIDADES_LABELS["esp_ortopedia"]),
+        ) + _btns(("esp_next_p5", "Mais opções ▶")))
+        return
+
+    if page_id == "esp_p5":
+        _send_buttons(to, "Mais especialidades:", _btns(
+            ("esp_fonoaudiologia", ESPECIALIDADES_LABELS["esp_fonoaudiologia"]),
+            ("esp_fisioterapia",   ESPECIALIDADES_LABELS["esp_fisioterapia"]),
+            ("esp_psicologia",     ESPECIALIDADES_LABELS["esp_psicologia"]),
+        ) + _btns(("esp_next_p6", "Mais opções ▶")))
+        return
+
+    # esp_p6
+    _send_buttons(to, "Quase lá! Escolha uma opção:", _btns(
+        ("esp_nutricao",     ESPECIALIDADES_LABELS["esp_nutricao"]),
+        ("esp_terapia_aba",  ESPECIALIDADES_LABELS["esp_terapia_aba"]),
+        ("op_voltar_root",   "Voltar ao início ⤴"),
+    ))
+
+def _ask_exames(to):
+    _send_buttons(to, "Selecione o tipo de exame:", _btns(
+        ("exm_laboratoriais", EXAMES_LABELS["exm_laboratoriais"]),
+        ("exm_raio_x",        EXAMES_LABELS["exm_raio_x"]),
+        ("op_voltar_root",    "Voltar ao início ⤴"),
+    ))
+
 # ===== Validadores e normalização ============================================
 _RE_CPF  = re.compile(r"\D")
 _RE_DATE = re.compile(r"^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/\d{4}$")
@@ -286,7 +370,7 @@ def _comuns_consulta(d):
     if d.get("forma")=="Convênio":
         campos.append(("convenio","Nome do convênio?"))
 
-    # 👉 ALTERADO: especialidade vem aqui
+    # 👉 agora 'especialidade' será com botões
     campos += [
         ("especialidade","Qual especialidade?"),
         ("nome","Informe seu nome completo:"),
@@ -301,6 +385,7 @@ def _comuns_exames(d):
     campos = [("forma","Convênio ou Particular?")]
     if d.get("forma")=="Convênio":
         campos.append(("convenio","Nome do convênio?"))
+    # 👉 agora 'exame' será com botões
     campos += [
         ("nome","Informe seu nome completo:"),
         ("cpf","Informe seu CPF:"),
@@ -359,7 +444,6 @@ def responder_evento_mensagem(entry: dict) -> None:
         br       = inter.get("button_reply") or {}
         lr       = inter.get("list_reply") or {}
         bid_id   = (br.get("id") or lr.get("id") or "").strip()
-        # bid_text = (br.get("title") or lr.get("title") or "").strip()  # opcional p/ logs
 
         if not bid_id:
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
@@ -452,6 +536,35 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:")
             return
 
+        # ===== NOVO: navegação/seleção de ESPECIALIDADES/EXAMES via botões =====
+        if bid_id in {"esp_next_p2","esp_next_p3","esp_next_p4","esp_next_p5","esp_next_p6"}:
+            page = bid_id.replace("esp_next_", "esp_p")
+            _ask_especialidade_page(wa_to, page)
+            return
+
+        if bid_id.startswith("esp_"):
+            ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
+            # Se clicou fora do fluxo 'consulta', inicia consulta já com especialidade
+            if ses.get("route") != "consulta":
+                ses = {"route":"consulta","stage":"especialidade","data":{"tipo":"consulta"}}
+            ses["data"]["especialidade"] = ESPECIALIDADES_LABELS.get(bid_id, "Especialidade")
+            ses["stage"] = None
+            SESS[wa_to] = ses
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+            return
+
+        if bid_id in {"exm_laboratoriais","exm_raio_x"}:
+            ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
+            # Se clicou fora do fluxo 'exames', inicia exames já com tipo
+            if ses.get("route") != "exames":
+                ses = {"route":"exames","stage":"exame","data":{"tipo":"exames"}}
+            ses["data"]["exame"] = EXAMES_LABELS[bid_id]
+            ses["stage"] = None
+            SESS[wa_to] = ses
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+            return
+        # =======================================================================
+
         if bid_id in {"forma_convenio","forma_particular"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             ses["data"]["forma"] = "Convênio" if bid_id=="forma_convenio" else "Particular"
@@ -492,7 +605,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             if bid_id == "corrigir":
                 SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
                 _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:")
-                _ask_forma(wa_to)  
+                _ask_forma(wa_to)
                 return
             ses["data"]["_confirmado"] = True
             SESS[wa_to] = ses
@@ -537,7 +650,7 @@ def responder_evento_mensagem(entry: dict) -> None:
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses_tmp)
                 return
 
-        # ⬇️ NOVO: fallback caso o WhatsApp entregue "Eu mesmo(a)" / "Outro paciente" como TEXTO
+        # Fallback: WhatsApp às vezes entrega "Eu mesmo(a)/Outro paciente" como texto
         ses_tmp = SESS.get(wa_to)
         if ses_tmp and ses_tmp.get("route") in {"consulta","exames"} and ses_tmp.get("stage") == "paciente_escolha":
             if "mesmo" in low:
@@ -646,13 +759,17 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         SESS[wa_to] = ses
         return
 
-    # Checar pendências (perguntar próximo campo)
+    # Checar pendências (perguntar próximo campo) — >>> ALTERADO p/ botões <<<
     if pend:
         next_key, question = pend[0]
         ses["stage"] = next_key
         SESS[wa_to] = ses
         if next_key == "forma":
             _ask_forma(wa_to); return
+        if route == "consulta" and next_key == "especialidade":
+            _ask_especialidade_page(wa_to, "esp_p1"); return
+        if route == "exames" and next_key == "exame":
+            _ask_exames(wa_to); return
         _send_text(wa_to, question)
         return
 
@@ -681,7 +798,6 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
         return
 
-    # Mantém comportamento atual para outros fluxos (ex.: exames)
     SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
 
 # Continue form (inclui complemento e paciente "outro")
@@ -689,6 +805,14 @@ def _continue_form(ss, wa_to, ses, user_text):
     route = ses["route"]
     stage = ses.get("stage","")
     data  = ses["data"]
+
+    # >>> NOVO: se aguardando especialidade/exame, reexibe botões e ignora texto <<<
+    if (route == "consulta" and stage == "especialidade"):
+        _ask_especialidade_page(wa_to, "esp_p1")
+        return
+    if (route == "exames" and stage == "exame"):
+        _ask_exames(wa_to)
+        return
 
     # 1) Campo atual → normaliza/valida/salva
     if stage:
@@ -742,13 +866,11 @@ def _continue_form(ss, wa_to, ses, user_text):
 
     # 3) Após número → perguntar complemento (botões + fallback em texto)
     if route in {"consulta","exames","editar_endereco"} and stage == "numero":
-        # garante que o número foi salvo e não está vazio
         if not data.get("numero"):
             _send_text(wa_to, "Informe o número (ou S/N):")
             return
         ses["stage"] = "complemento_decisao"
         SESS[wa_to] = ses
-    # Apenas os botões (sem mensagem antes)
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
         return
 
