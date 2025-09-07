@@ -80,10 +80,10 @@ def _map_to_captacao(d: dict) -> dict:
         "fone": (d.get("contato") or "").strip(),
         "nome_cap": (d.get("whatsapp_nome") or "").strip(),
         "especialidade_exame": espec_ex,
-        "tipo": tipo,                       # "convenio" ou "particular"
-        "convenio": convenio,               # <<— NOME DO CONVÊNIO (ex.: "Unimed")
-        "convenio_nome": convenio,
-
+        "tipo": tipo,                     # "convenio" ou "particular"
+        "convenio": convenio,             # << envia o nome do convênio
+        "convenio_nome": convenio,        # << redundância pró-intake
+        
         # Paciente
         "paciente_nome": pac_nome,
         "paciente_cpf":  pac_cpf,
