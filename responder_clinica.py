@@ -45,34 +45,35 @@ def _post_webapp(payload: dict) -> dict:
 def _map_to_captacao(d: dict) -> dict:
     """
     Converte o 'data' do fluxo para os campos do WebApp,
-    preenchendo corretamente as colunas do RESPONSÁVEL (H:I:J).
-    Regra:
-      - Eu mesmo(a): paciente ← nome/cpf/nasc ; responsável ← vazio
-      - Outro paciente: paciente ← paciente_* ; responsável ← nome/cpf/(parentesco)
+    preenchendo corretamente paciente (E:F:G) e responsável (H:I:J).
     """
     forma = (d.get("forma") or "").strip().lower()
     tipo  = "convenio" if "conv" in forma else ("particular" if "part" in forma else "")
     espec_ex = d.get("especialidade") or d.get("exame") or d.get("tipo") or ""
 
+    # Helpers
+    def only_digits(s): 
+        return "".join(ch for ch in (s or "") if ch.isdigit())
+
     if d.get("_pac_outro"):
-        # Outro paciente → paciente_* vêm dos campos específicos
+        # Outro paciente → campos específicos
         pac_nome = (d.get("paciente_nome") or "").strip()
-        pac_cpf  = (d.get("paciente_cpf")  or "").strip()  # pode vir vazio (usamos documento opcional)
+        pac_cpf  = only_digits(d.get("paciente_cpf") or d.get("paciente_documento") or "")
         pac_nasc = (d.get("paciente_nasc") or "").strip()
 
         # Responsável é quem está no WhatsApp
         resp_nome = (d.get("nome") or "").strip()
-        resp_cpf  = (d.get("cpf")  or "").strip()
-        resp_par  = (d.get("parentesco") or d.get("relacao") or "").strip()
+        resp_cpf  = only_digits(d.get("cpf") or "")
+        resp_nasc = (d.get("nasc") or "").strip()
     else:
         # Eu mesmo(a)
         pac_nome = (d.get("nome") or "").strip()
-        pac_cpf  = (d.get("cpf")  or "").strip()
+        pac_cpf  = only_digits(d.get("cpf") or "")
         pac_nasc = (d.get("nasc") or "").strip()
 
         resp_nome = ""
         resp_cpf  = ""
-        resp_par  = ""
+        resp_nasc = ""
 
     return {
         "fone": (d.get("contato") or "").strip(),
@@ -80,17 +81,17 @@ def _map_to_captacao(d: dict) -> dict:
         "especialidade_exame": espec_ex,
         "tipo": tipo,
 
-        # Paciente (E:F:G)
+        # Paciente
         "paciente_nome": pac_nome,
         "paciente_cpf":  pac_cpf,
         "paciente_nasc": pac_nasc,
 
-        # Responsável (H:I:J)  ← sua planilha usa parentesco, não “nasc”
-        "responsavel_nome":       resp_nome,
-        "responsavel_cpf":        resp_cpf,
-        "responsavel_parentesco": resp_par,
+        # Responsável
+        "responsavel_nome": resp_nome,
+        "responsavel_cpf":  resp_cpf,
+        "responsavel_nasc": resp_nasc,
 
-        # Endereço (K:L:M:N) + timestamp no Apps Script
+        # Endereço
         "cep": (d.get("cep") or "").strip(),
         "endereco": (d.get("endereco") or "").strip(),
         "numero": (d.get("numero") or "").strip(),
