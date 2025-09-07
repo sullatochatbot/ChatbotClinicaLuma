@@ -48,9 +48,13 @@ def _map_to_captacao(d: dict) -> dict:
     preenchendo corretamente paciente (E:F:G) e responsável (H:I:J).
     """
     forma = (d.get("forma") or "").strip().lower()
-    tipo  = "convenio" if "conv" in forma else ("particular" if "part" in forma else "")
-    espec_ex = d.get("especialidade") or d.get("exame") or d.get("tipo") or ""
     convenio = (d.get("convenio") or d.get("operadora") or d.get("plano") or "").strip()
+    # se houver nome de convênio, garantimos tipo='convenio'
+    if convenio:
+        tipo = "convenio"
+    else:
+        tipo = "convenio" if "conv" in forma else ("particular" if "part" in forma else "")
+    espec_ex = d.get("especialidade") or d.get("exame") or d.get("tipo") or ""
 
     # Helpers
     def only_digits(s): 
@@ -80,10 +84,14 @@ def _map_to_captacao(d: dict) -> dict:
         "fone": (d.get("contato") or "").strip(),
         "nome_cap": (d.get("whatsapp_nome") or "").strip(),
         "especialidade_exame": espec_ex,
-        "tipo": tipo,                     # "convenio" ou "particular"
-        "convenio": convenio,             # << envia o nome do convênio
-        "convenio_nome": convenio,        # << redundância pró-intake
-        
+
+        # >>> campos que o intake usa para preencher a coluna D
+        "tipo": tipo,                       # "convenio" ou "particular"
+        "tipo_atendimento": tipo,           # redundância (o intake aceita)
+        "forma_atendimento": tipo,          # redundância (o intake aceita)
+        "convenio": convenio,               # nome do convênio (ex.: "Unimed")
+        "convenio_nome": convenio,          # redundância (o intake aceita)
+
         # Paciente
         "paciente_nome": pac_nome,
         "paciente_cpf":  pac_cpf,
