@@ -61,7 +61,11 @@ def _map_to_captacao(d: dict) -> dict:
 
 # Mantém as assinaturas usadas no resto do código:
 def _upsert_paciente(ss, d): return
-def _add_solicitacao(ss, d): _post_webapp(_map_to_captacao(d))
+def _add_solicitacao(ss, d):
+    payload = _map_to_captacao(d)
+    print("[SHEETS] sending:", json.dumps(payload, ensure_ascii=False))
+    resp = _post_webapp(payload)
+    print("[SHEETS] done:", resp)
 def _add_pesquisa(ss, d):
     dd = dict(d)
     dd["tipo"] = dd.get("tipo") or "pesquisa"
