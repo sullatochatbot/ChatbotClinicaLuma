@@ -43,26 +43,60 @@ def _post_webapp(payload: dict) -> dict:
         return {"ok": False, "erro": str(e)}
 
 def _map_to_captacao(d: dict) -> dict:
-    """Converte o 'data' do fluxo para os campos do WebApp."""
+    """
+    Converte o 'data' do fluxo para os campos do WebApp,
+    preenchendo corretamente as colunas do RESPONSÁVEL (H:I:J).
+    Regra:
+      - Eu mesmo(a): paciente ← nome/cpf/nasc ; responsável ← vazio
+      - Outro paciente: paciente ← paciente_* ; responsável ← nome/cpf/(parentesco)
+    """
     forma = (d.get("forma") or "").strip().lower()
     tipo  = "convenio" if "conv" in forma else ("particular" if "part" in forma else "")
     espec_ex = d.get("especialidade") or d.get("exame") or d.get("tipo") or ""
+
+    if d.get("_pac_outro"):
+        # Outro paciente → paciente_* vêm dos campos específicos
+        pac_nome = (d.get("paciente_nome") or "").strip()
+        pac_cpf  = (d.get("paciente_cpf")  or "").strip()  # pode vir vazio (usamos documento opcional)
+        pac_nasc = (d.get("paciente_nasc") or "").strip()
+
+        # Responsável é quem está no WhatsApp
+        resp_nome = (d.get("nome") or "").strip()
+        resp_cpf  = (d.get("cpf")  or "").strip()
+        resp_par  = (d.get("parentesco") or d.get("relacao") or "").strip()
+    else:
+        # Eu mesmo(a)
+        pac_nome = (d.get("nome") or "").strip()
+        pac_cpf  = (d.get("cpf")  or "").strip()
+        pac_nasc = (d.get("nasc") or "").strip()
+
+        resp_nome = ""
+        resp_cpf  = ""
+        resp_par  = ""
+
     return {
         "fone": (d.get("contato") or "").strip(),
         "nome_cap": (d.get("whatsapp_nome") or "").strip(),
         "especialidade_exame": espec_ex,
         "tipo": tipo,
-        "paciente_nome": d.get("paciente_nome") or d.get("nome") or "",
-        "paciente_cpf": d.get("cpf") or "",
-        "paciente_nasc": d.get("nasc") or "",
-        "responsavel_nome": d.get("responsavel_nome") or "",
-        "responsavel_cpf": d.get("responsavel_cpf") or "",
-        "responsavel_nasc": d.get("responsavel_nasc") or "",
-        "cep": d.get("cep") or "",
-        "endereco": d.get("endereco") or "",
-        "numero": d.get("numero") or "",
-        "complemento": d.get("complemento") or "",
-        "auto_refino": True,  # ← ativa semeadura da aba captação_refinada
+
+        # Paciente (E:F:G)
+        "paciente_nome": pac_nome,
+        "paciente_cpf":  pac_cpf,
+        "paciente_nasc": pac_nasc,
+
+        # Responsável (H:I:J)  ← sua planilha usa parentesco, não “nasc”
+        "responsavel_nome":       resp_nome,
+        "responsavel_cpf":        resp_cpf,
+        "responsavel_parentesco": resp_par,
+
+        # Endereço (K:L:M:N) + timestamp no Apps Script
+        "cep": (d.get("cep") or "").strip(),
+        "endereco": (d.get("endereco") or "").strip(),
+        "numero": (d.get("numero") or "").strip(),
+        "complemento": (d.get("complemento") or "").strip(),
+
+        "auto_refino": True,
     }
 
 # Mantém as assinaturas usadas no resto do código:
