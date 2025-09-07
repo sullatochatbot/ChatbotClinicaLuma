@@ -50,6 +50,7 @@ def _map_to_captacao(d: dict) -> dict:
     forma = (d.get("forma") or "").strip().lower()
     tipo  = "convenio" if "conv" in forma else ("particular" if "part" in forma else "")
     espec_ex = d.get("especialidade") or d.get("exame") or d.get("tipo") or ""
+    convenio = (d.get("convenio") or d.get("operadora") or d.get("plano") or "").strip()
 
     # Helpers
     def only_digits(s): 
@@ -79,7 +80,9 @@ def _map_to_captacao(d: dict) -> dict:
         "fone": (d.get("contato") or "").strip(),
         "nome_cap": (d.get("whatsapp_nome") or "").strip(),
         "especialidade_exame": espec_ex,
-        "tipo": tipo,
+        "tipo": tipo,                       # "convenio" ou "particular"
+        "convenio": convenio,               # <<— NOME DO CONVÊNIO (ex.: "Unimed")
+        "convenio_nome": convenio,
 
         # Paciente
         "paciente_nome": pac_nome,
