@@ -21,6 +21,9 @@ HEADERS   = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}", "Content-Type": "appl
 # Evitar duplicatas no mesmo minuto (memória do processo)
 _ULTIMAS_CHAVES = set()
 
+# Sessão expira após X minutos sem interação
+SESSION_TTL_MIN = 10  # ajuste se quiser
+
 # ===== Persistência via WebApp (novo) ========================================
 def _post_webapp(payload: dict) -> dict:
     """Envia JSON para o WebApp (rota 'captacao')."""
@@ -91,6 +94,9 @@ def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
 # ===== Utilitários ============================================================
 def _hora_sp():
     return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d %H:%M:%S")
+
+def _now_sp():
+    return datetime.now(ZoneInfo("America/Sao_Paulo"))
 
 _RE_CEP = re.compile(r"^\d{8}$")
 def _cep_ok(s): return bool(_RE_CEP.match(re.sub(r"\D","",s or "")))
@@ -291,9 +297,22 @@ def responder_evento_mensagem(entry: dict) -> None:
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
     mtype        = msg.get("type")
 
-    SESS.setdefault(wa_to, {"route":"root","stage":"","data":{}})
-    SESS[wa_to]["data"]["contato"] = wa_to
-    SESS[wa_to]["data"]["whatsapp_nome"] = profile_name
+    # cria/recupera sessão
+    ses = SESS.setdefault(wa_to, {"route":"root","stage":"","data":{}, "last_at": None})
+    ses["data"]["contato"] = wa_to
+    ses["data"]["whatsapp_nome"] = profile_name
+
+    # TTL: se passou do tempo, reinicia do zero
+    try:
+        now  = _now_sp()
+        last = ses.get("last_at")
+        if last and (now - last).total_seconds() > SESSION_TTL_MIN * 60:
+            SESS[wa_to] = {"route":"root","stage":"","data":{}, "last_at": now}
+            _send_buttons(wa_to, "Reiniciei seu atendimento para começarmos do zero 👇", BTN_ROOT)
+            return
+        ses["last_at"] = now
+    except Exception:
+        ses["last_at"] = _now_sp()
 
     # ===== INTERACTIVE =======================================================
     if mtype == "interactive":
@@ -429,6 +448,12 @@ def responder_evento_mensagem(entry: dict) -> None:
     if mtype == "text":
         body = (msg.get("text", {}).get("body") or "").strip()
         low  = body.lower()
+
+        # reset manual da conversa
+        if low in {"menu", "inicio", "início", "reiniciar", "start", "começar"}:
+            SESS[wa_to] = {"route":"root","stage":"","data":{}, "last_at": _now_sp()}
+            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
+            return
 
         # decisões simples por texto (quando bot perguntou)
         ses_tmp = SESS.get(wa_to)
