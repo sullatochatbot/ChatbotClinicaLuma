@@ -18,6 +18,9 @@ LINK_INSTAGRAM = os.getenv("LINK_INSTAGRAM", "https://www.instagram.com/luma_cli
 GRAPH_URL = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages" if WA_PHONE_NUMBER_ID else ""
 HEADERS   = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}", "Content-Type": "application/json"}
 
+# Evitar duplicatas no mesmo minuto (memória do processo)
+_ULTIMAS_CHAVES = set()
+
 # ===== Persistência via WebApp (novo) ========================================
 def _post_webapp(payload: dict) -> dict:
     """Envia JSON para o WebApp (rota 'captacao')."""
@@ -56,16 +59,24 @@ def _map_to_captacao(d: dict) -> dict:
         "endereco": d.get("endereco") or "",
         "numero": d.get("numero") or "",
         "complemento": d.get("complemento") or "",
-        # "auto_refino": False,  # descomente se não quiser semear captação_refinada
+        "auto_refino": True,  # ← ativa semeadura da aba captação_refinada
     }
 
 # Mantém as assinaturas usadas no resto do código:
 def _upsert_paciente(ss, d): return
 def _add_solicitacao(ss, d):
-    payload = _map_to_captacao(d)
-    print("[SHEETS] sending:", json.dumps(payload, ensure_ascii=False))
-    resp = _post_webapp(payload)
-    print("[SHEETS] done:", resp)
+    # chave simples: fone + item + forma + minuto
+    chave = f"{(d.get('contato') or '').strip()}|" \
+            f"{(d.get('especialidade') or d.get('exame') or '').strip()}|" \
+            f"{(d.get('forma') or '').strip()}|" \
+            f"{_hora_sp()[:16]}"
+
+    if chave in _ULTIMAS_CHAVES:
+        print("[SHEETS] skip duplicate:", chave)
+        return
+    _ULTIMAS_CHAVES.add(chave)
+
+    _post_webapp(_map_to_captacao(d))
 def _add_pesquisa(ss, d):
     dd = dict(d)
     dd["tipo"] = dd.get("tipo") or "pesquisa"
