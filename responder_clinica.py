@@ -254,7 +254,7 @@ def _ask_especialidade_num(wa_to, ses):
 # Exames — agora também como lista numerada (entrada SOMENTE por número)
 EXAMES_ORDER = [
     "Exames Laboratoriais",
-    "Eletrocardiograma"
+    "Eletrocardiograma",
     "Raio X",
     # Adicione novos exames aqui mantendo o rótulo canônico que você deseja ver no Sheets
 ]
