@@ -238,14 +238,14 @@ MSG_SUGESTOES = ("💡 Ajude a Clínica Luma a melhorar! Diga quais *especialida
 # Especialidades — já era lista numerada
 ESPECIALIDADES_ORDER = [
     "Clínico Geral","Dermatologia e Estética","Endocrinologia",
-    "Eletrocardiograma","Fonoaudiologia","Medicina do Trabalho",
+    "Fonoaudiologia","Medicina do Trabalho",
     "Ortopedia","Pediatria","Psiquiatria","Terapia ABA",
 ]
 def _especialidade_menu_texto():
     linhas = ["Escolha a especialidade digitando o *número* correspondente:"]
     for i, nome in enumerate(ESPECIALIDADES_ORDER, start=1):
         linhas.append(f"{i:>2}) {nome}")
-    linhas.append("\nEx.: digite 1 para Clínico Geral, 8 para Pediatria, etc.")
+    linhas.append("\nEx.: digite 1 para Clínico Geral, 7 para Pediatria, etc.")
     return "\n".join(linhas)
 def _ask_especialidade_num(wa_to, ses):
     ses["stage"] = "especialidade_num"; SESS[wa_to] = ses
@@ -254,6 +254,7 @@ def _ask_especialidade_num(wa_to, ses):
 # Exames — agora também como lista numerada (entrada SOMENTE por número)
 EXAMES_ORDER = [
     "Exames Laboratoriais",
+    "Eletrocardiograma"
     "Raio X",
     # Adicione novos exames aqui mantendo o rótulo canônico que você deseja ver no Sheets
 ]
