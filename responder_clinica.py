@@ -262,7 +262,7 @@ def _exame_menu_texto():
     linhas = ["Escolha o exame digitando o *número* correspondente:"]
     for i, nome in enumerate(EXAMES_ORDER, start=1):
         linhas.append(f"{i:>2}) {nome}")
-    linhas.append("\nEx.: digite 1 para Exames Laboratoriais, 2 para Raio X.")
+    linhas.append("\nEx.: digite 1 para Exames Laboratoriais, 3 para Raio X, etc.")
     return "\n".join(linhas)
 def _ask_exame_num(wa_to, ses):
     ses["stage"] = "exame_num"; SESS[wa_to] = ses
