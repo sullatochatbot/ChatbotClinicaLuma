@@ -1,4 +1,4 @@
-# responder_clinica.py — Clínica Luma (Especialidades: lista numerada por texto)
+# responder_clinica.py — Clínica Luma (Especialidades: lista numerada por texto; Exames: lista numerada)
 # ==============================================================================
 import os, re, json, requests
 from datetime import datetime
@@ -234,17 +234,8 @@ BTN_PAC_DOC = [{"id": "pacdoc_sim", "title": "Sim"},
 MSG_SUGESTOES = ("💡 Ajude a Clínica Luma a melhorar! Diga quais *especialidades* ou *exames* "
                  "você gostaria que tivéssemos.")
 
-# ===== Catálogos / Exames e Especialidades ===================================
-EXAMES_LABELS = {"exm_laboratoriais": "Exames Laboratoriais", "exm_raio_x": "Raio X"}
-
-def _btns(*pairs): return [{"id": p, "title": t} for (p, t) in pairs]
-def _ask_exames(to):
-    _send_buttons(to, "Selecione o tipo de exame:", _btns(
-        ("exm_laboratoriais", EXAMES_LABELS["exm_laboratoriais"]),
-        ("exm_raio_x",        EXAMES_LABELS["exm_raio_x"]),
-        ("op_voltar_root",    "⤴ Início"),
-    ))
-
+# ===== Catálogos / Especialidades e Exames ===================================
+# Especialidades — já era lista numerada
 ESPECIALIDADES_ORDER = [
     "Clínico Geral","Dermatologia e Estética","Endocrinologia",
     "Eletrocardiograma","Fonoaudiologia","Medicina do Trabalho",
@@ -252,12 +243,29 @@ ESPECIALIDADES_ORDER = [
 ]
 def _especialidade_menu_texto():
     linhas = ["Escolha a especialidade digitando o *número* correspondente:"]
-    for i, nome in enumerate(ESPECIALIDADES_ORDER, start=1): linhas.append(f"{i:>2}) {nome}")
+    for i, nome in enumerate(ESPECIALIDADES_ORDER, start=1):
+        linhas.append(f"{i:>2}) {nome}")
     linhas.append("\nEx.: digite 1 para Clínico Geral, 8 para Pediatria, etc.")
     return "\n".join(linhas)
 def _ask_especialidade_num(wa_to, ses):
     ses["stage"] = "especialidade_num"; SESS[wa_to] = ses
     _send_text(wa_to, _especialidade_menu_texto())
+
+# Exames — agora também como lista numerada (entrada SOMENTE por número)
+EXAMES_ORDER = [
+    "Exames Laboratoriais",
+    "Raio X",
+    # Adicione novos exames aqui mantendo o rótulo canônico que você deseja ver no Sheets
+]
+def _exame_menu_texto():
+    linhas = ["Escolha o exame digitando o *número* correspondente:"]
+    for i, nome in enumerate(EXAMES_ORDER, start=1):
+        linhas.append(f"{i:>2}) {nome}")
+    linhas.append("\nEx.: digite 1 para Exames Laboratoriais, 2 para Raio X.")
+    return "\n".join(linhas)
+def _ask_exame_num(wa_to, ses):
+    ses["stage"] = "exame_num"; SESS[wa_to] = ses
+    _send_text(wa_to, _exame_menu_texto())
 
 # ===== Validadores e normalização ============================================
 _RE_CPF  = re.compile(r"\D")
@@ -465,14 +473,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
             _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:"); return
 
-        # EXAMES (button)
-        if bid_id in {"exm_laboratoriais","exm_raio_x"}:
-            ses = SESS.get(wa_to) or {"route":"exames","stage":"exame","data":{"tipo":"exames"}}
-            if ses.get("route") != "exames":
-                ses = {"route":"exames","stage":"exame","data":{"tipo":"exames"}}
-            ses["data"]["exame"] = EXAMES_LABELS[bid_id]
-            ses["stage"] = None; SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+        # (Removido) EXAMES por botões: agora é lista numerada via texto
 
         # Forma / paciente / doc / confirmar
         if bid_id in {"forma_convenio","forma_particular"}:
@@ -483,6 +484,11 @@ def responder_evento_mensagem(entry: dict) -> None:
                     ses["stage"] = "convenio"; SESS[wa_to] = ses
                     _send_text(wa_to, "Qual o nome do convênio?"); return
                 _ask_especialidade_num(wa_to, ses); return
+            if ses.get("route") == "exames":
+                if ses["data"]["forma"] == "Convênio" and not ses["data"].get("convenio"):
+                    ses["stage"] = "convenio"; SESS[wa_to] = ses
+                    _send_text(wa_to, "Qual o nome do convênio?"); return
+                _ask_exame_num(wa_to, ses); return
             SESS[wa_to] = ses; _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
         if bid_id in {"pac_voce","pac_outro"}:
@@ -615,6 +621,22 @@ def responder_evento_mensagem(entry: dict) -> None:
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
         # ======================================================================
 
+        # ====== EXAMES por número =============================================
+        if ses and ses.get("route") == "exames" and ses.get("stage") == "exame_num":
+            txt = (body or "").strip()
+            m = re.match(r"^\s*(\d{1,2})\s*$", txt)
+            if not m:
+                _send_text(wa_to, "Por favor, digite apenas o número do exame.")
+                _send_text(wa_to, _exame_menu_texto()); return
+            idx = int(m.group(1))
+            if not (1 <= idx <= len(EXAMES_ORDER)):
+                _send_text(wa_to, f"O número {idx} não está na lista. Tente novamente.")
+                _send_text(wa_to, _exame_menu_texto()); return
+            ses["data"]["exame"] = EXAMES_ORDER[idx-1]
+            ses["stage"] = None; SESS[wa_to] = ses
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+        # ======================================================================
+
         # fluxo ativo por texto
         ses = SESS.get(wa_to)
         active_routes = {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"}
@@ -674,7 +696,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         ses["stage"] = next_key; SESS[wa_to] = ses
         if next_key == "forma": _ask_forma(wa_to); return
         if route == "consulta" and next_key == "especialidade": _ask_especialidade_num(wa_to, ses); return
-        if route == "exames"   and next_key == "exame":          _ask_exames(wa_to); return
+        if route == "exames"   and next_key == "exame":          _ask_exame_num(wa_to, ses); return
         _send_text(wa_to, question); return
 
     if route in {"retorno","resultado"}:
@@ -705,7 +727,7 @@ def _continue_form(ss, wa_to, ses, user_text):
 
     # Reabrir UI correta se aguardando
     if (route == "consulta" and stage == "especialidade"): _ask_especialidade_num(wa_to, ses); return
-    if (route == "exames" and stage == "exame"):           _ask_exames(wa_to); return
+    if (route == "exames" and stage == "exame_num"):       _ask_exame_num(wa_to, ses); return
 
     # Campo atual
     if stage:
@@ -713,13 +735,15 @@ def _continue_form(ss, wa_to, ses, user_text):
         if stage == "forma": data["forma"] = _normalize("forma", user_text)
         else:
             # casos especiais (marketing) já tratados fora
-            if stage not in {"indicador_nome", "panfleto_codigo", "origem_menu"}:
+            if stage not in {"indicador_nome", "panfleto_codigo", "origem_menu", "exame_num"}:
                 err = _validate(stage, user_text, data=data)
                 if err:
                     _send_text(wa_to, err); _send_text(wa_to, _question_for(route, stage, data)); return
                 data[stage] = user_text if stage in {"nasc", "cep"} else _normalize(stage, user_text)
                 if route == "consulta" and stage == "convenio":
                     _ask_especialidade_num(wa_to, ses); return
+                if route == "exames" and stage == "convenio":
+                    _ask_exame_num(wa_to, ses); return
                 if stage == "cep" and route in {"consulta","exames","editar_endereco"}:
                     ses["stage"] = "numero"; SESS[wa_to] = ses; _send_text(wa_to, "Informe o número:"); return
 
@@ -763,7 +787,7 @@ def _continue_form(ss, wa_to, ses, user_text):
         ses["stage"] = None; SESS[wa_to] = ses
         _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
-    # Especialidade por número (ou aproximação por texto)
+    # Especialidade por número
     if route == "consulta" and stage == "especialidade_num":
         txt = (user_text or "").strip()
         m = re.match(r"^\s*(\d{1,2})\s*$", txt)
@@ -775,14 +799,6 @@ def _continue_form(ss, wa_to, ses, user_text):
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
             _send_text(wa_to, f"O número {idx} não está na lista. Tente novamente.")
             _send_text(wa_to, _especialidade_menu_texto()); return
-
-        alvo = txt.lower()
-        match = next((nome for nome in ESPECIALIDADES_ORDER if alvo in nome.lower()), None)
-        if match:
-            ses["data"]["especialidade"] = match
-            ses["stage"] = None; SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
-
         _send_text(wa_to, "Não entendi. Digite apenas o número da especialidade.")
         _send_text(wa_to, _especialidade_menu_texto()); return
 
