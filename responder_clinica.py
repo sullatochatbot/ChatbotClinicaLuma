@@ -80,9 +80,9 @@ def _map_to_captacao(d: dict) -> dict:
         resp_cpf  = ""
         resp_nasc = ""
 
-    # >>> Novos campos de marketing (somente captação_chatbot)
+    # >>> Campos de marketing (somente captação_chatbot)
     origem_cliente      = (d.get("origem_cliente") or "").strip()
-    indicador_nome      = (d.get("indicador_nome") or "").strip()
+    indicador_nome      = (d.get("indicador_nome") or "").strip()  # pode ficar vazio na nova lógica
     panfleto_codigo     = (d.get("panfleto_codigo") or "").strip()
     panfleto_codigo_raw = (d.get("panfleto_codigo_raw") or "").strip()
 
@@ -313,8 +313,8 @@ def _origem_menu_texto():
         "1) Instagram\n"
         "2) Facebook\n"
         "3) Google\n"
-        "4) Indicação\n"
-        "5) Panfleto (P=)\n"
+        "4) Panfletos (digite código promocional impresso)\n"
+        "5) Outros\n"
         "0) Pular\n\n"
         "Digite apenas o número da opção:"
     )
@@ -592,29 +592,31 @@ def responder_evento_mensagem(entry: dict) -> None:
                 ses["data"]["_origem_done"] = True
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
-            if op == 4:
-                ses["data"]["origem_cliente"] = "Indicação"
-                ses["stage"] = "indicador_nome"; SESS[wa_to] = ses
-                _send_text(wa_to, "Quem indicou? (pode pular digitando 0)"); return
-            if op == 5:
+            if op == 4:  # Panfletos
                 ses["data"]["origem_cliente"] = "Panfleto"
-                ses["stage"] = "panfleto_codigo"; SESS[wa_to] = ses
-                _send_text(wa_to, "Digite o código exatamente como impresso (ex.: P=1234).\n"
-                                  "Dica: se só tiver números, pode mandar assim mesmo (ex.: 1234)."); return
+                ses["stage"] = "origem_panfleto_codigo"; SESS[wa_to] = ses
+                _send_text(wa_to, "P= ")  # apenas isso, aguardando o código
+                return
+            if op == 5:  # Outros (aberto)
+                ses["data"]["origem_cliente"] = ""  # será preenchido com "Outros: <texto>"
+                ses["stage"] = "origem_outros_texto"; SESS[wa_to] = ses
+                _send_text(wa_to, "Pode nos dizer em poucas palavras de onde nos conheceu?"); return
             _send_text(wa_to, "Opção inválida. Escolha um número entre 0 e 5.")
             _send_text(wa_to, _origem_menu_texto()); return
 
-        if ses and ses.get("stage") == "indicador_nome":
-            if body.strip() and body.strip() != "0":
-                ses["data"]["indicador_nome"] = body.strip()
-            else:
-                ses["data"]["indicador_nome"] = ""
+        if ses and ses.get("stage") == "origem_outros_texto":
+            texto = (body or "").strip()
+            ses["data"]["origem_cliente"] = f"Outros: {texto}" if texto else "Outros"
             ses["data"]["_origem_done"] = True
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
-        if ses and ses.get("stage") == "panfleto_codigo":
+        if ses and ses.get("stage") == "origem_panfleto_codigo":
             code_norm, code_raw = _normalize_panfleto(body)
+            if not code_norm:
+                _send_text(wa_to, "Código inválido. Responda com os números ou com P= seguido do código.")
+                _send_text(wa_to, "P= ")
+                return
             ses["data"]["panfleto_codigo"] = code_norm
             ses["data"]["panfleto_codigo_raw"] = code_raw
             ses["data"]["_origem_done"] = True
@@ -736,7 +738,7 @@ def _continue_form(ss, wa_to, ses, user_text):
         if stage == "forma": data["forma"] = _normalize("forma", user_text)
         else:
             # casos especiais (marketing) já tratados fora
-            if stage not in {"indicador_nome", "panfleto_codigo", "origem_menu", "exame_num"}:
+            if stage not in {"origem_outros_texto", "origem_panfleto_codigo", "origem_menu", "exame_num"}:
                 err = _validate(stage, user_text, data=data)
                 if err:
                     _send_text(wa_to, err); _send_text(wa_to, _question_for(route, stage, data)); return
