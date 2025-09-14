@@ -18,7 +18,7 @@ LINK_INSTAGRAM = os.getenv("LINK_INSTAGRAM", "https://www.instagram.com/luma_cli
 GRAPH_URL = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages" if WA_PHONE_NUMBER_ID else ""
 HEADERS   = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}", "Content-Type": "application/json"}
 
-# Evitar duplicatas no mesmo minuto (memória do processo)
+# Evitar duplicatas no mesmo processo
 _ULTIMAS_CHAVES = set()
 
 # Sessão expira após X minutos sem interação
@@ -35,7 +35,7 @@ def _post_webapp(payload: dict, rota: str = "captacao") -> dict:
     - Loga request/response
     """
     if not CLINICA_SHEETS_URL:
-        print("[SHEETS] Config ausente: CLINICA_SHEETS_URL");
+        print("[SHEETS] Config ausente: CLINICA_SHEETS_URL")
         return {"ok": False, "erro": "CLINICA_SHEETS_URL ausente"}
 
     data = {"rota": rota}
@@ -119,7 +119,7 @@ def _map_to_captacao(d: dict) -> dict:
     panfleto_codigo     = (d.get("panfleto_codigo") or "").strip()
     panfleto_codigo_raw = (d.get("panfleto_codigo_raw") or "").strip()
 
-    return {
+    payload = {
         "fone": (d.get("contato") or "").strip(),
         "nome_cap": (d.get("whatsapp_nome") or "").strip(),
         "especialidade_exame": espec_ex,
@@ -157,27 +157,49 @@ def _map_to_captacao(d: dict) -> dict:
         "auto_refino": True,
     }
 
+    # Propaga message_id se já estiver na sessão/dado
+    mid = d.get("_last_msg_id") or d.get("message_id")
+    if mid:
+        payload["message_id"] = mid
+
+    return payload
+
+# Helper para enviar marketing imediatamente quando a origem é capturada
+def _post_marketing_from_session(ses):
+    try:
+        payload = _map_to_captacao(ses["data"])
+        _post_webapp(payload, rota="captacao")
+    except Exception as e:
+        print("[marketing_imediato] erro:", e)
+
 # Mantém as assinaturas usadas no resto do código:
 def _upsert_paciente(ss, d):
     return
 
 
-def _add_solicitacao(ss, d):
-    # chave simples: fone + item + forma + minuto (evita duplicatas)
-    chave = f"{(d.get('contato') or '').strip()}|" \
-            f"{(d.get('especialidade') or d.get('exame') or '').strip()}|" \
-            f"{(d.get('forma') or '').strip()}|" \
-            f"{_hora_sp()[:16]}"
+def _add_solicitacao(ss, d, msg_id=None):
+    # chave de idempotência preferindo o message_id da Meta; fallback com fingerprint de dados
+    chave = (msg_id or "").strip() or (
+        f"{(d.get('contato') or '').strip()}|"
+        f"{(d.get('especialidade') or d.get('exame') or '').strip()}|"
+        f"{(d.get('forma') or '').strip()}|"
+        f"{d.get('cep','')}|{d.get('numero','')}|{d.get('endereco','')}"
+    )
 
     if chave in _ULTIMAS_CHAVES:
         print("[SHEETS] skip duplicate:", chave)
         return
     _ULTIMAS_CHAVES.add(chave)
 
+    # injeta message_id no payload quando houver
+    d2 = dict(d)
+    if msg_id:
+        d2["message_id"] = msg_id
+
     # 1) Marketing (marketing_captacao)
-    _post_webapp(_map_to_captacao(d), rota="captacao")
+    _post_webapp(_map_to_captacao(d2), rota="captacao")
     # 2) Entrada bruta do bot (captação_chatbot)
-    _post_webapp(d, rota="chatbot")
+    _post_webapp(d2, rota="chatbot")
 
 
 def _add_pesquisa(ss, d):
@@ -534,6 +556,7 @@ def responder_evento_mensagem(entry: dict) -> None:
         return
 
     msg = messages[0]
+    msg_id = msg.get("id")  # NOVO: id único da mensagem (Meta)
     wa_to = contacts[0].get("wa_id") or msg.get("from")
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
     mtype = msg.get("type")
@@ -542,6 +565,7 @@ def responder_evento_mensagem(entry: dict) -> None:
     ses = SESS.setdefault(wa_to, {"route": "root", "stage": "", "data": {}, "last_at": None})
     ses["data"]["contato"] = wa_to
     ses["data"]["whatsapp_nome"] = profile_name
+    ses["data"]["_last_msg_id"] = msg_id  # NOVO: guardar para idempotência
 
     # TTL: se passou do tempo, reinicia do zero
     try:
@@ -567,29 +591,29 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # Menu raiz
         if bid_id == "op_consulta":
-            SESS[wa_to] = {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta"}}
+            SESS[wa_to] = {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta", "_last_msg_id": msg_id}}
             _ask_forma(wa_to)
             return
         if bid_id == "op_exames":
-            SESS[wa_to] = {"route": "exames", "stage": "forma", "data": {"tipo": "exames"}}
+            SESS[wa_to] = {"route": "exames", "stage": "forma", "data": {"tipo": "exames", "_last_msg_id": msg_id}}
             _ask_forma(wa_to)
             return
 
         # + Opções → Menus adicionais
         if bid_id == "op_mais":
-            SESS[wa_to] = {"route": "mais2", "stage": "", "data": {}}
+            SESS[wa_to] = {"route": "mais2", "stage": "", "data": {"_last_msg_id": msg_id}}
             _send_buttons(wa_to, "Outras opções:", BTN_MAIS_2)
             return
         if bid_id == "op_retorno":
-            SESS[wa_to] = {"route": "retorno", "stage": "cpf", "data": {"tipo": "retorno"}}
+            SESS[wa_to] = {"route": "retorno", "stage": "cpf", "data": {"tipo": "retorno", "_last_msg_id": msg_id}}
             _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
             return
         if bid_id == "op_resultado":
-            SESS[wa_to] = {"route": "resultado", "stage": "cpf", "data": {"tipo": "resultado"}}
+            SESS[wa_to] = {"route": "resultado", "stage": "cpf", "data": {"tipo": "resultado", "_last_msg_id": msg_id}}
             _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
             return
         if bid_id == "op_mais3":
-            SESS[wa_to] = {"route": "mais3", "stage": "", "data": {}}
+            SESS[wa_to] = {"route": "mais3", "stage": "", "data": {"_last_msg_id": msg_id}}
             _send_buttons(wa_to, "Mais opções:", BTN_MAIS_3)
             return
         if bid_id == "op_endereco":
@@ -608,12 +632,12 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT)
             return
         if bid_id == "op_editar_endereco":
-            SESS[wa_to] = {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta"}}
+            SESS[wa_to] = {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta", "_last_msg_id": msg_id}}
             _send_text(wa_to, "Vamos atualizar seus dados. Primeiro:")
             _ask_forma(wa_to)
             return
         if bid_id == "op_mais4":
-            SESS[wa_to] = {"route": "mais4", "stage": "", "data": {}}
+            SESS[wa_to] = {"route": "mais4", "stage": "", "data": {"_last_msg_id": msg_id}}
             _send_buttons(wa_to, "Opções finais:", BTN_MAIS_4)
             return
         if bid_id == "op_sugestoes":
@@ -629,23 +653,24 @@ def responder_evento_mensagem(entry: dict) -> None:
             )
             return
         if bid_id == "op_voltar_root":
-            SESS[wa_to] = {"route": "root", "stage": "", "data": {}}
+            SESS[wa_to] = {"route": "root", "stage": "", "data": {"_last_msg_id": msg_id}}
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
             return
 
         # Sugestões
         if bid_id == "sug_especialidades":
-            SESS[wa_to] = {"route": "sugestao", "stage": "await_text", "data": {"categoria": "especialidades"}}
+            SESS[wa_to] = {"route": "sugestao", "stage": "await_text", "data": {"categoria": "especialidades", "_last_msg_id": msg_id}}
             _send_text(wa_to, "Digite quais *especialidades* você gostaria que a clínica oferecesse:")
             return
         if bid_id == "sug_exames":
-            SESS[wa_to] = {"route": "sugestao", "stage": "await_text", "data": {"categoria": "exames"}}
+            SESS[wa_to] = {"route": "sugestao", "stage": "await_text", "data": {"categoria": "exames", "_last_msg_id": msg_id}}
             _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:")
             return
 
         # Forma / paciente / doc / confirmar
         if bid_id in {"forma_convenio", "forma_particular"}:
-            ses = SESS.get(wa_to) or {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta"}}
+            ses = SESS.get(wa_to) or {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta", "_last_msg_id": msg_id}}
+            ses["data"]["_last_msg_id"] = msg_id
             ses["data"]["forma"] = "Convênio" if bid_id == "forma_convenio" else "Particular"
             if ses.get("route") == "consulta":
                 if ses["data"]["forma"] == "Convênio" and not ses["data"].get("convenio"):
@@ -666,7 +691,8 @@ def responder_evento_mensagem(entry: dict) -> None:
             return
 
         if bid_id in {"pac_voce", "pac_outro"}:
-            ses = SESS.get(wa_to) or {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta"}}
+            ses = SESS.get(wa_to) or {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta", "_last_msg_id": msg_id}}
+            ses["data"]["_last_msg_id"] = msg_id
             if bid_id == "pac_voce":
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
@@ -677,7 +703,8 @@ def responder_evento_mensagem(entry: dict) -> None:
                 return
 
         if bid_id in {"pacdoc_sim", "pacdoc_nao"}:
-            ses = SESS.get(wa_to) or {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta"}}
+            ses = SESS.get(wa_to) or {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta", "_last_msg_id": msg_id}}
+            ses["data"]["_last_msg_id"] = msg_id
             if bid_id == "pacdoc_sim":
                 ses["stage"] = "paciente_doc"; SESS[wa_to] = ses
                 _send_text(wa_to, "Informe o CPF ou RG do paciente:")
@@ -689,11 +716,12 @@ def responder_evento_mensagem(entry: dict) -> None:
                 return
 
         if bid_id in {"confirmar", "corrigir"}:
-            ses = SESS.get(wa_to) or {"route": "root", "stage": "", "data": {}}
+            ses = SESS.get(wa_to) or {"route": "root", "stage": "", "data": {"_last_msg_id": msg_id}}
+            ses["data"]["_last_msg_id"] = msg_id
             if bid_id == "corrigir":
                 tipo_atual = (ses.get("data") or {}).get("tipo") or ("consulta" if ses.get("route") == "consulta" else "exames")
                 nova_route = "exames" if tipo_atual == "exames" else "consulta"
-                SESS[wa_to] = {"route": nova_route, "stage": "forma", "data": {"tipo": nova_route}}
+                SESS[wa_to] = {"route": nova_route, "stage": "forma", "data": {"tipo": nova_route, "_last_msg_id": msg_id}}
                 _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:")
                 _ask_forma(wa_to)
                 return
@@ -702,12 +730,14 @@ def responder_evento_mensagem(entry: dict) -> None:
             return
 
         if bid_id == "compl_sim":
-            ses = SESS.get(wa_to) or {"route": "", "stage": "", "data": {}}
+            ses = SESS.get(wa_to) or {"route": "", "stage": "", "data": {"_last_msg_id": msg_id}}
+            ses["data"]["_last_msg_id"] = msg_id
             ses["stage"] = "complemento"; SESS[wa_to] = ses
             _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
             return
         if bid_id == "compl_nao":
-            ses = SESS.get(wa_to) or {"route": "", "stage": "", "data": {}}
+            ses = SESS.get(wa_to) or {"route": "", "stage": "", "data": {"_last_msg_id": msg_id}}
+            ses["data"]["_last_msg_id"] = msg_id
             ses["data"]["complemento"] = ""; ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
@@ -722,7 +752,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # reset manual da conversa
         if low in {"menu", "inicio", "início", "reiniciar", "start", "começar"}:
-            SESS[wa_to] = {"route": "root", "stage": "", "data": {}, "last_at": _now_sp()}
+            SESS[wa_to] = {"route": "root", "stage": "", "data": {"_last_msg_id": msg_id}, "last_at": _now_sp()}
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
             return
 
@@ -748,12 +778,13 @@ def responder_evento_mensagem(entry: dict) -> None:
                 return
             _add_sugestao(ss, categoria, texto, wa_to)
             _send_text(wa_to, "🙏 Obrigado pela sugestão! Ela nos ajuda a melhorar a cada dia.")
-            SESS[wa_to] = {"route": "root", "stage": "", "data": {}}
+            SESS[wa_to] = {"route": "root", "stage": "", "data": {"_last_msg_id": msg_id}}
             return
 
         # ====== ORIGEM (marketing) — menu numerado / coleta P= =================
         ses = SESS.get(wa_to)
         if ses and ses.get("stage") == "origem_menu":
+            ses["data"]["_last_msg_id"] = msg_id
             escolha = re.sub(r"\D", "", body or "")
             if not escolha:
                 _send_text(wa_to, "Por favor, digite apenas um número (0 a 5).")
@@ -763,24 +794,28 @@ def responder_evento_mensagem(entry: dict) -> None:
             if op == 0:
                 ses["data"]["origem_cliente"] = ""
                 ses["data"]["_origem_done"] = True
+                _post_marketing_from_session(ses)  # grava já
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
             if op == 1:
                 ses["data"]["origem_cliente"] = "Instagram"
                 ses["data"]["_origem_done"] = True
+                _post_marketing_from_session(ses)  # grava já
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
             if op == 2:
                 ses["data"]["origem_cliente"] = "Facebook"
                 ses["data"]["_origem_done"] = True
+                _post_marketing_from_session(ses)  # grava já
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
             if op == 3:
                 ses["data"]["origem_cliente"] = "Google"
                 ses["data"]["_origem_done"] = True
+                _post_marketing_from_session(ses)  # grava já
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
@@ -799,15 +834,18 @@ def responder_evento_mensagem(entry: dict) -> None:
             return
 
         if ses and ses.get("stage") == "origem_outros_texto":
+            ses["data"]["_last_msg_id"] = msg_id
             texto = (body or "").strip()
             ses["data"]["origem_cliente"] = "Outros"
             ses["data"]["origem_texto"] = texto
             ses["data"]["_origem_done"] = True
+            _post_marketing_from_session(ses)  # grava já
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
         if ses and ses.get("stage") == "origem_panfleto_codigo":
+            ses["data"]["_last_msg_id"] = msg_id
             code_norm, code_raw = _normalize_panfleto(body)
             if not code_norm:
                 _send_text(wa_to, "Código inválido. Responda com os números ou com P= seguido do código.")
@@ -816,6 +854,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             ses["data"]["panfleto_codigo"] = code_norm
             ses["data"]["panfleto_codigo_raw"] = code_raw
             ses["data"]["_origem_done"] = True
+            _post_marketing_from_session(ses)  # grava já
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
@@ -823,6 +862,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # ====== EXAMES por número =============================================
         if ses and ses.get("route") == "exames" and ses.get("stage") == "exame_num":
+            ses["data"]["_last_msg_id"] = msg_id
             txt = (body or "").strip()
             m = re.match(r"^\s*(\d{1,2})\s*$", txt)
             if not m:
@@ -844,20 +884,22 @@ def responder_evento_mensagem(entry: dict) -> None:
         ses = SESS.get(wa_to)
         active_routes = {"consulta", "exames", "retorno", "resultado", "pesquisa", "editar_endereco"}
         if ses and ses.get("route") in active_routes and ses.get("stage"):
+            ses["data"]["_last_msg_id"] = msg_id
             _continue_form(ss, wa_to, ses, body)
             return
         ses = SESS.get(wa_to)
         if ses and ses.get("route") in active_routes and not ses.get("stage"):
+            ses["data"]["_last_msg_id"] = msg_id
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
 
         # atalhos
         if "consulta" in low:
-            SESS[wa_to] = {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta"}}
+            SESS[wa_to] = {"route": "consulta", "stage": "forma", "data": {"tipo": "consulta", "_last_msg_id": msg_id}}
             _ask_forma(wa_to)
             return
         if "exame" in low:
-            SESS[wa_to] = {"route": "exames", "stage": "forma", "data": {"tipo": "exames"}}
+            SESS[wa_to] = {"route": "exames", "stage": "forma", "data": {"tipo": "exames", "_last_msg_id": msg_id}}
             _ask_forma(wa_to)
             return
 
@@ -927,14 +969,14 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         return
 
     if route in {"retorno", "resultado"}:
-        _add_solicitacao(ss, data)
+        _add_solicitacao(ss, data, msg_id=ses["data"].get("_last_msg_id"))
         _send_text(wa_to, "✅ Recebido! Nossa equipe vai verificar e te retornar.")
         SESS[wa_to] = {"route": "root", "stage": "", "data": {}}
         return
 
     if route == "editar_endereco":
         d = dict(data); d["tipo"] = "editar_endereco"
-        _add_solicitacao(ss, d)
+        _add_solicitacao(ss, d, msg_id=ses["data"].get("_last_msg_id"))
         _send_text(wa_to, f"✅ Endereço atualizado e registrado:\n{data.get('endereco', '')}")
         SESS[wa_to] = {"route": "root", "stage": "", "data": data}
         return
@@ -947,7 +989,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
 
     # Salvar e encerrar
     _upsert_paciente(ss, data)
-    _add_solicitacao(ss, data)
+    _add_solicitacao(ss, data, msg_id=ses["data"].get("_last_msg_id"))
     _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
     SESS[wa_to] = {"route": "root", "stage": "", "data": {}}
 
