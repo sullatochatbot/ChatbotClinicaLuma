@@ -57,7 +57,7 @@ def _map_to_captacao(d: dict) -> dict:
     espec_ex = d.get("especialidade") or d.get("exame") or d.get("tipo") or ""
 
     # Helpers
-    def only_digits(s): 
+    def only_digits(s):
         return "".join(ch for ch in (s or "") if ch.isdigit())
 
     if d.get("_pac_outro"):
@@ -79,6 +79,12 @@ def _map_to_captacao(d: dict) -> dict:
         resp_nome = ""
         resp_cpf  = ""
         resp_nasc = ""
+
+    # >>> Novos campos de marketing (somente captação_chatbot)
+    origem_cliente      = (d.get("origem_cliente") or "").strip()
+    indicador_nome      = (d.get("indicador_nome") or "").strip()
+    panfleto_codigo     = (d.get("panfleto_codigo") or "").strip()
+    panfleto_codigo_raw = (d.get("panfleto_codigo_raw") or "").strip()
 
     return {
         "fone": (d.get("contato") or "").strip(),
@@ -107,6 +113,12 @@ def _map_to_captacao(d: dict) -> dict:
         "endereco": (d.get("endereco") or "").strip(),
         "numero": (d.get("numero") or "").strip(),
         "complemento": (d.get("complemento") or "").strip(),
+
+        # Marketing
+        "origem_cliente": origem_cliente,
+        "indicador_nome": indicador_nome,
+        "panfleto_codigo": panfleto_codigo,
+        "panfleto_codigo_raw": panfleto_codigo_raw,
 
         "auto_refino": True,
     }
@@ -284,6 +296,29 @@ def _normalize(key, v):
     return v
 
 def _ask_forma(to): _send_buttons(to, "Convênio ou Particular?", BTN_FORMA)
+
+# ===== Origem menu (marketing) ===============================================
+def _origem_menu_texto():
+    return (
+        "Antes de encerrar, onde você nos conheceu?\n"
+        "1) Instagram\n"
+        "2) Facebook\n"
+        "3) Google\n"
+        "4) Indicação\n"
+        "5) Panfleto (P=)\n"
+        "0) Pular\n\n"
+        "Digite apenas o número da opção:"
+    )
+
+def _normalize_panfleto(raw: str) -> (str, str):
+    """Normaliza qualquer entrada para 'P=1234' se houver dígitos; retorna (normalizado, raw)."""
+    raw = (raw or "").strip()
+    dig = re.sub(r"\D", "", raw)
+    if dig:
+        dig = dig.lstrip("0") or "0"
+        return f"P={dig}", raw
+    return "", raw
+
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
 
@@ -432,7 +467,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # EXAMES (button)
         if bid_id in {"exm_laboratoriais","exm_raio_x"}:
-            ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
+            ses = SESS.get(wa_to) or {"route":"exames","stage":"exame","data":{"tipo":"exames"}}
             if ses.get("route") != "exames":
                 ses = {"route":"exames","stage":"exame","data":{"tipo":"exames"}}
             ses["data"]["exame"] = EXAMES_LABELS[bid_id]
@@ -522,6 +557,64 @@ def responder_evento_mensagem(entry: dict) -> None:
             _send_text(wa_to, "🙏 Obrigado pela sugestão! Ela nos ajuda a melhorar a cada dia.")
             SESS[wa_to] = {"route":"root","stage":"","data":{}}; return
 
+        # ====== ORIGEM (marketing) — menu numerado / coleta P= =================
+        ses = SESS.get(wa_to)
+        if ses and ses.get("stage") == "origem_menu":
+            escolha = re.sub(r"\D", "", body or "")
+            if not escolha:
+                _send_text(wa_to, "Por favor, digite apenas um número (0 a 5).")
+                _send_text(wa_to, _origem_menu_texto()); return
+            op = int(escolha)
+            if op == 0:
+                ses["data"]["origem_cliente"] = ""
+                ses["data"]["_origem_done"] = True
+                ses["stage"] = None; SESS[wa_to] = ses
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+            if op == 1:
+                ses["data"]["origem_cliente"] = "Instagram"
+                ses["data"]["_origem_done"] = True
+                ses["stage"] = None; SESS[wa_to] = ses
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+            if op == 2:
+                ses["data"]["origem_cliente"] = "Facebook"
+                ses["data"]["_origem_done"] = True
+                ses["stage"] = None; SESS[wa_to] = ses
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+            if op == 3:
+                ses["data"]["origem_cliente"] = "Google"
+                ses["data"]["_origem_done"] = True
+                ses["stage"] = None; SESS[wa_to] = ses
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+            if op == 4:
+                ses["data"]["origem_cliente"] = "Indicação"
+                ses["stage"] = "indicador_nome"; SESS[wa_to] = ses
+                _send_text(wa_to, "Quem indicou? (pode pular digitando 0)"); return
+            if op == 5:
+                ses["data"]["origem_cliente"] = "Panfleto"
+                ses["stage"] = "panfleto_codigo"; SESS[wa_to] = ses
+                _send_text(wa_to, "Digite o código exatamente como impresso (ex.: P=1234).\n"
+                                  "Dica: se só tiver números, pode mandar assim mesmo (ex.: 1234)."); return
+            _send_text(wa_to, "Opção inválida. Escolha um número entre 0 e 5.")
+            _send_text(wa_to, _origem_menu_texto()); return
+
+        if ses and ses.get("stage") == "indicador_nome":
+            if body.strip() and body.strip() != "0":
+                ses["data"]["indicador_nome"] = body.strip()
+            else:
+                ses["data"]["indicador_nome"] = ""
+            ses["data"]["_origem_done"] = True
+            ses["stage"] = None; SESS[wa_to] = ses
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+
+        if ses and ses.get("stage") == "panfleto_codigo":
+            code_norm, code_raw = _normalize_panfleto(body)
+            ses["data"]["panfleto_codigo"] = code_norm
+            ses["data"]["panfleto_codigo_raw"] = code_raw
+            ses["data"]["_origem_done"] = True
+            ses["stage"] = None; SESS[wa_to] = ses
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+        # ======================================================================
+
         # fluxo ativo por texto
         ses = SESS.get(wa_to)
         active_routes = {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"}
@@ -538,6 +631,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}; _ask_forma(wa_to); return
 
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT); return
+
 # ===== Decidir próximo passo / salvar ========================================
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     route = ses.get("route"); data  = ses.get("data", {})
@@ -594,6 +688,12 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         _send_text(wa_to, f"✅ Endereço atualizado e registrado:\n{data.get('endereco','')}")
         SESS[wa_to] = {"route":"root","stage":"","data":data}; return
 
+    # >>> Gancho de marketing antes de salvar (apenas uma vez)
+    if (route in {"consulta","exames"}) and data.get("_confirmado") and not data.get("_origem_done"):
+        ses["stage"] = "origem_menu"; SESS[wa_to] = ses
+        _send_text(wa_to, _origem_menu_texto()); return
+
+    # Salvar e encerrar
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
     _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
@@ -612,14 +712,16 @@ def _continue_form(ss, wa_to, ses, user_text):
         if stage in {"nasc", "cep"}: user_text = _normalize(stage, user_text)
         if stage == "forma": data["forma"] = _normalize("forma", user_text)
         else:
-            err = _validate(stage, user_text, data=data)
-            if err:
-                _send_text(wa_to, err); _send_text(wa_to, _question_for(route, stage, data)); return
-            data[stage] = user_text if stage in {"nasc", "cep"} else _normalize(stage, user_text)
-            if route == "consulta" and stage == "convenio":
-                _ask_especialidade_num(wa_to, ses); return
-            if stage == "cep" and route in {"consulta","exames","editar_endereco"}:
-                ses["stage"] = "numero"; SESS[wa_to] = ses; _send_text(wa_to, "Informe o número:"); return
+            # casos especiais (marketing) já tratados fora
+            if stage not in {"indicador_nome", "panfleto_codigo", "origem_menu"}:
+                err = _validate(stage, user_text, data=data)
+                if err:
+                    _send_text(wa_to, err); _send_text(wa_to, _question_for(route, stage, data)); return
+                data[stage] = user_text if stage in {"nasc", "cep"} else _normalize(stage, user_text)
+                if route == "consulta" and stage == "convenio":
+                    _ask_especialidade_num(wa_to, ses); return
+                if stage == "cep" and route in {"consulta","exames","editar_endereco"}:
+                    ses["stage"] = "numero"; SESS[wa_to] = ses; _send_text(wa_to, "Informe o número:"); return
 
     # Paciente "outro"
     if data.get("_pac_outro"):
