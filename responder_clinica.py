@@ -1,6 +1,7 @@
 # responder_clinica.py — Clínica Luma (Especialidades: lista numerada por texto; Exames: lista numerada)
 # ==============================================================================
 import os, re, json, requests
+import os, re, json, requests, uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, List
@@ -42,6 +43,8 @@ def _post_webapp(payload: dict, rota: str = "captacao") -> dict:
     if CLINICA_SHEETS_SECRET:
         data["secret"] = CLINICA_SHEETS_SECRET
     data.update(payload or {})
+    # id único para idempotência no Apps Script (se ainda não veio da sessão/Meta)
+    data["message_id"] = data.get("message_id") or data.get("id") or uuid.uuid4().hex
 
     base = CLINICA_SHEETS_URL
     # substitui route existente ou acrescenta
@@ -794,28 +797,24 @@ def responder_evento_mensagem(entry: dict) -> None:
             if op == 0:
                 ses["data"]["origem_cliente"] = ""
                 ses["data"]["_origem_done"] = True
-                _post_marketing_from_session(ses)  # grava já
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
             if op == 1:
                 ses["data"]["origem_cliente"] = "Instagram"
                 ses["data"]["_origem_done"] = True
-                _post_marketing_from_session(ses)  # grava já
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
             if op == 2:
                 ses["data"]["origem_cliente"] = "Facebook"
                 ses["data"]["_origem_done"] = True
-                _post_marketing_from_session(ses)  # grava já
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
             if op == 3:
                 ses["data"]["origem_cliente"] = "Google"
                 ses["data"]["_origem_done"] = True
-                _post_marketing_from_session(ses)  # grava já
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
                 return
@@ -839,7 +838,6 @@ def responder_evento_mensagem(entry: dict) -> None:
             ses["data"]["origem_cliente"] = "Outros"
             ses["data"]["origem_texto"] = texto
             ses["data"]["_origem_done"] = True
-            _post_marketing_from_session(ses)  # grava já
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
@@ -854,7 +852,6 @@ def responder_evento_mensagem(entry: dict) -> None:
             ses["data"]["panfleto_codigo"] = code_norm
             ses["data"]["panfleto_codigo_raw"] = code_raw
             ses["data"]["_origem_done"] = True
-            _post_marketing_from_session(ses)  # grava já
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
             return
