@@ -26,18 +26,39 @@ SESSION_TTL_MIN = 10  # ajuste se quiser
 
 # ===== Persistência via WebApp (novo) ========================================
 def _post_webapp(payload: dict) -> dict:
-    """Envia JSON para o WebApp (rota 'captacao')."""
-    if not (CLINICA_SHEETS_URL and CLINICA_SHEETS_SECRET):
-        print("[SHEETS] Config ausente (CLINICA_SHEETS_URL/SECRET).")
-        return {"ok": False, "erro": "config ausente"}
-    data = {"secret": CLINICA_SHEETS_SECRET, "rota": "captacao"}
-    data.update(payload)
+    """
+    Envia JSON para o WebApp (rota 'captacao').
+    - Usa CLINICA_SHEETS_URL (completa, final /exec).
+    - Adiciona ?route=captacao na URL (mesmo mandando no JSON).
+    - Usa CLINICA_SHEETS_SECRET se existir (opcional).
+    - Loga request/response para facilitar debug no Render.
+    """
+    if not CLINICA_SHEETS_URL:
+        print("[SHEETS] Config ausente: CLINICA_SHEETS_URL")
+        return {"ok": False, "erro": "CLINICA_SHEETS_URL ausente"}
+
+    data = {"rota": "captacao"}
+    if CLINICA_SHEETS_SECRET:
+        data["secret"] = CLINICA_SHEETS_SECRET
+    data.update(payload or {})
+
+    url = CLINICA_SHEETS_URL
+    if "route=captacao" not in url:
+        url = url + ("&" if "?" in url else "?") + "route=captacao"
+
+    headers = {"Content-Type": "application/json"}
     try:
-        r = requests.post(CLINICA_SHEETS_URL, json=data, timeout=12)
+        print("[SHEETS->] url:", url)
+        print("[SHEETS->] payload:", json.dumps(data, ensure_ascii=False)[:1000])
+        r = requests.post(url, json=data, headers=headers, timeout=20)
+        txt = r.text
+        try:
+            j = r.json()
+        except Exception:
+            j = {"raw": txt}
+        print("[SHEETS<-] status:", r.status_code, "| resp:", j)
         r.raise_for_status()
-        j = r.json()
-        print("[SHEETS] resp:", j)
-        return j
+        return j if isinstance(j, dict) else {"ok": True, "resp": j}
     except Exception as e:
         print("[SHEETS] erro:", e)
         return {"ok": False, "erro": str(e)}
@@ -45,7 +66,8 @@ def _post_webapp(payload: dict) -> dict:
 def _map_to_captacao(d: dict) -> dict:
     """
     Converte o 'data' do fluxo para os campos do WebApp,
-    preenchendo corretamente paciente (E:F:G) e responsável (H:I:J).
+    preenchendo corretamente paciente (E:F:G) e responsável (H:I:J)
+    e adicionando os campos de marketing.
     """
     forma = (d.get("forma") or "").strip().lower()
     convenio = (d.get("convenio") or d.get("operadora") or d.get("plano") or "").strip()
@@ -80,9 +102,17 @@ def _map_to_captacao(d: dict) -> dict:
         resp_cpf  = ""
         resp_nasc = ""
 
-    # >>> Campos de marketing (somente captação_chatbot)
-    origem_cliente      = (d.get("origem_cliente") or "").strip()
-    indicador_nome      = (d.get("indicador_nome") or "").strip()  # pode ficar vazio na nova lógica
+    # ===== Marketing
+    origem_cliente = (d.get("origem_cliente") or "").strip()
+    origem_texto   = (d.get("origem_texto") or "").strip()
+
+    # Se vier "Outros: algo", separe para origem_texto
+    if origem_cliente.lower().startswith("outros:"):
+        if not origem_texto:
+            origem_texto = origem_cliente.split(":", 1)[1].strip()
+        origem_cliente = "Outros"
+
+    indicador_nome      = (d.get("indicador_nome") or "").strip()
     panfleto_codigo     = (d.get("panfleto_codigo") or "").strip()
     panfleto_codigo_raw = (d.get("panfleto_codigo_raw") or "").strip()
 
@@ -114,8 +144,9 @@ def _map_to_captacao(d: dict) -> dict:
         "numero": (d.get("numero") or "").strip(),
         "complemento": (d.get("complemento") or "").strip(),
 
-        # Marketing
-        "origem_cliente": origem_cliente,
+        # Marketing (gravado pela rota 'captacao' no Apps Script)
+        "origem_cliente": origem_cliente,   # Instagram/Facebook/Google/Panfleto/Indicação/Outros
+        "origem_texto":   origem_texto,     # descrição livre quando Outros
         "indicador_nome": indicador_nome,
         "panfleto_codigo": panfleto_codigo,
         "panfleto_codigo_raw": panfleto_codigo_raw,
@@ -474,8 +505,6 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"sugestao","stage":"await_text","data":{"categoria":"exames"}}
             _send_text(wa_to, "Digite quais *exames* você gostaria que a clínica oferecesse:"); return
 
-        # (Removido) EXAMES por botões: agora é lista numerada via texto
-
         # Forma / paciente / doc / confirmar
         if bid_id in {"forma_convenio","forma_particular"}:
             ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
@@ -598,7 +627,7 @@ def responder_evento_mensagem(entry: dict) -> None:
                 _send_text(wa_to, "P= ")  # apenas isso, aguardando o código
                 return
             if op == 5:  # Outros (aberto)
-                ses["data"]["origem_cliente"] = ""  # será preenchido com "Outros: <texto>"
+                ses["data"]["origem_cliente"] = "Outros"
                 ses["stage"] = "origem_outros_texto"; SESS[wa_to] = ses
                 _send_text(wa_to, "Pode nos dizer em poucas palavras de onde nos conheceu?"); return
             _send_text(wa_to, "Opção inválida. Escolha um número entre 0 e 5.")
@@ -606,7 +635,8 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         if ses and ses.get("stage") == "origem_outros_texto":
             texto = (body or "").strip()
-            ses["data"]["origem_cliente"] = f"Outros: {texto}" if texto else "Outros"
+            ses["data"]["origem_cliente"] = "Outros"
+            ses["data"]["origem_texto"] = texto
             ses["data"]["_origem_done"] = True
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
