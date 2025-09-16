@@ -26,29 +26,39 @@ SESSION_TTL_MIN = 10  # ajuste se quiser
 
 # ===== Persistência via WebApp ===============================================
 def _post_webapp(payload: dict) -> dict:
-    """Envia JSON para o WebApp (rota 'captacao')."""
+    """Envia JSON para o WebApp (rota 'chatbot')."""
     if not (CLINICA_SHEETS_URL and CLINICA_SHEETS_SECRET):
         print("[SHEETS] Config ausente (CLINICA_SHEETS_URL/SECRET).")
-        return {"ok": False, "erro": "config ausente"}
+        return {"ok": False, "erro": "config ausente"}  # <- NÃO deixe comentado
+
+    # rota fixa do intake
     data = {"secret": CLINICA_SHEETS_SECRET, "rota": "chatbot"}
     data.update(payload)
-    # garantir P/Q/R mesmo que venham com nomes alternativos
-    data["origem_cliente"]     = payload.get("origem_cliente") \
-                                or payload.get("origem") \
-                                or payload.get("origemCliente") \
-                                or ""
 
-    data["panfleto_codigo"]    = payload.get("panfleto_codigo") \
-                                or payload.get("origem_panfleto_codigo") \
-                                or payload.get("panfleto_codigo_raw") \
-                                or payload.get("panfletoCodigo") \
-                                or payload.get("panfletoCodigoRaw") \
-                                or ""
+    # Normalização P/Q/R (aceitando aliases)
+    data["origem_cliente"] = (
+        payload.get("origem_cliente")
+        or payload.get("origem")
+        or payload.get("origemCliente")
+        or ""
+    )
 
-    data["origem_outro_texto"] = payload.get("origem_outro_texto") \
-                                or payload.get("origem_texto") \
-                                or payload.get("origemOutroTexto") \
-                                or ""
+    data["panfleto_codigo"] = (
+        payload.get("panfleto_codigo")
+        or payload.get("panfleto_codigo_raw")
+        or payload.get("origem_panfleto_codigo")
+        or payload.get("panfletoCodigo")
+        or payload.get("panfletoCodigoRaw")
+        or ""
+    )
+
+    data["origem_outro_texto"] = (
+        payload.get("origem_outro_texto")
+        or payload.get("origem_texto")
+        or payload.get("origemOutroTexto")
+        or ""
+    )
+
     try:
         r = requests.post(CLINICA_SHEETS_URL, json=data, timeout=12)
         r.raise_for_status()
