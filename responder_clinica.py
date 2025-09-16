@@ -119,7 +119,7 @@ def _map_to_captacao(d: dict) -> dict:
         "indicador_nome": indicador_nome,
         "panfleto_codigo": panfleto_codigo,
         "panfleto_codigo_raw": panfleto_codigo_raw,
-
+        "origem_outro_texto": (d.get("origem_outro_texto") or "").strip(),  # <<< R
         "auto_refino": True,
     }
 
@@ -600,7 +600,8 @@ def responder_evento_mensagem(entry: dict) -> None:
                 _send_text(wa_to, "P= ")  # apenas isso, aguardando o código
                 return
             if op == 5:  # Outros (aberto)
-                ses["data"]["origem_cliente"] = ""  # será preenchido com "Outros: <texto>"
+                ses["data"]["origem_cliente"] = "Outros"   # <<< P = "Outros"
+                ses["data"]["origem_outro_texto"] = ""     # <<< limpa R
                 ses["stage"] = "origem_outros_texto"; SESS[wa_to] = ses
                 _send_text(wa_to, "Pode nos dizer em poucas palavras de onde nos conheceu?"); return
             _send_text(wa_to, "Opção inválida. Escolha um número entre 0 e 5.")
@@ -608,7 +609,8 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         if ses and ses.get("stage") == "origem_outros_texto":
             texto = (body or "").strip()
-            ses["data"]["origem_cliente"] = f"Outros: {texto}" if texto else "Outros"
+            ses["data"]["origem_cliente"] = "Outros"             # <<< P
+            ses["data"]["origem_outro_texto"] = texto            # <<< R
             ses["data"]["_origem_done"] = True
             ses["stage"] = None; SESS[wa_to] = ses
             _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
