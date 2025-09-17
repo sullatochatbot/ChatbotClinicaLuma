@@ -58,6 +58,10 @@ def _post_webapp(payload: dict) -> dict:
         or payload.get("origemOutroTexto")
         or ""
     )
+    # >>> compatibilidade com intake antigo (Apps Script)
+    data["origem"]                 = data["origem_cliente"]       # P
+    data["origem_panfleto_codigo"] = data["panfleto_codigo"]      # Q
+    data["origem_texto"]           = data["origem_outro_texto"]   # R
 
     try:
         r = requests.post(CLINICA_SHEETS_URL, json=data, timeout=12)
@@ -553,6 +557,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         if bid_id == "compl_sim":
             ses = SESS.get(wa_to) or {"route":"", "stage":"", "data":{}}
+            ses["data"]["_compl_decidido"] = True          # <--- NOVO
             ses["stage"] = "complemento"; SESS[wa_to] = ses
             _send_text(wa_to, "Digite o complemento (apto, bloco, sala):"); return
         if bid_id == "compl_nao":
@@ -715,7 +720,7 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     # Quando já temos CEP+Número e a decisão sobre complemento (complemento presente,
     # mesmo que vazio), perguntamos a ORIGEM uma única vez, antes de montar o resumo.
     if route in {"consulta","exames"} and not data.get("_origem_done"):
-        if data.get("cep") and data.get("numero") and ("complemento" in data):
+        if data.get("cep") and data.get("numero"):
             ses["stage"] = "origem_menu"; SESS[wa_to] = ses
             _send_text(wa_to, _origem_menu_texto()); return
 
@@ -824,19 +829,38 @@ def _continue_form(ss, wa_to, ses, user_text):
         _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO); return
 
     if stage == "complemento_decisao":
+        # Se já veio do botão "Sim", não repete a pergunta
+        if data.get("_compl_decidido"):
+            ses["stage"] = "complemento"
+            SESS[wa_to] = ses
+            _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
+            return
+
         l = (user_text or "").strip().lower()
-        if l in {"nao","não","n","no"}:
-            data["complemento"] = ""; ses["stage"] = None; SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
-        if l in {"sim","s","yes","y"}:
-            ses["stage"] = "complemento"; SESS[wa_to] = ses
-            _send_text(wa_to, "Digite o complemento (apto, bloco, sala):"); return
-        _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO); return
+        if l in {"nao", "não", "n", "no"}:
+            data["complemento"] = ""
+            ses["stage"] = None
+            SESS[wa_to] = ses
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+            return
+
+        if l in {"sim", "s", "yes", "y"}:
+            ses["stage"] = "complemento"
+            SESS[wa_to] = ses
+            _send_text(wa_to, "Digite o complemento (apto, bloco, sala):")
+            return
+
+        _send_buttons(wa_to, "Possui complemento (apto, bloco, sala)?", BTN_COMPLEMENTO)
+        return
 
     if stage == "complemento":
         data["complemento"] = (user_text or "").strip()
-        ses["stage"] = None; SESS[wa_to] = ses
-        _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+        # opcional: limpar o flag para evitar efeitos colaterais
+        data.pop("_compl_decidido", None)
+        ses["stage"] = None
+        SESS[wa_to] = ses
+        _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+        return
 
     # Especialidade por número
     if route == "consulta" and stage == "especialidade_num":
