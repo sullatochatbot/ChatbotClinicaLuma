@@ -94,14 +94,6 @@ def _post_webapp(payload: dict) -> dict:
     print("[SEND→Sheets] url:", CLINICA_SHEETS_URL)
     print("[SEND→Sheets] campos:", json.dumps(dbg, ensure_ascii=False))
 
-    # >>> ADICIONE ESTA LINHA <<<
-    print("[SEND→Sheets] PQRS:", {
-        "origem_cliente": data.get("origem_cliente"),
-        "panfleto_codigo": data.get("panfleto_codigo"),
-        "origem_outro_texto": data.get("origem_outro_texto"),
-        "message_id": data.get("message_id"),
-    })
-
     try:
         r = requests.post(CLINICA_SHEETS_URL, json=data, timeout=12)
         r.raise_for_status()
