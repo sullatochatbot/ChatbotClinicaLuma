@@ -26,42 +26,73 @@ SESSION_TTL_MIN = 10  # ajuste se quiser
 
 # ===== Persistência via WebApp ===============================================
 def _post_webapp(payload: dict) -> dict:
-    """Envia JSON para o WebApp (rota 'chatbot')."""
+    """
+    Envia JSON para o WebApp (rota 'chatbot').
+    Garante message_id único, normaliza contato/whatsapp_nome e P/Q/R, e loga o que foi enviado.
+    """
     if not (CLINICA_SHEETS_URL and CLINICA_SHEETS_SECRET):
         print("[SHEETS] Config ausente (CLINICA_SHEETS_URL/SECRET).")
         return {"ok": False, "erro": "config ausente"}  # <- NÃO deixe comentado
 
-    # rota fixa do intake
+    # Base do payload: rota/secret no BODY (aceitos pelo intake)
     data = {"secret": CLINICA_SHEETS_SECRET, "rota": "chatbot"}
-    data.update(payload)
+    data.update(payload or {})
 
-    # Normalização P/Q/R (aceitando aliases)
+    # message_id único (evita dedupe)
+    if not data.get("message_id"):
+        data["message_id"] = f"auto-{int(datetime.now().timestamp()*1000)}"
+
+    # Normalização contato / whatsapp_nome
+    data["contato"] = data.get("contato") or data.get("fone") or data.get("telefone") or ""
+    data["whatsapp_nome"] = (
+        data.get("whatsapp_nome")
+        or data.get("nome_whatsapp")
+        or data.get("nome_cap")
+        or data.get("nome")
+        or ""
+    )
+
+    # 'forma' (fallback de 'tipo', se for o caso)
+    if not data.get("forma") and data.get("tipo"):
+        data["forma"] = data.get("tipo")
+
+    # ---------------- P / Q / R ----------------
+    # P: origem_cliente
     data["origem_cliente"] = (
-        payload.get("origem_cliente")
-        or payload.get("origem")
-        or payload.get("origemCliente")
+        data.get("origem_cliente")
+        or data.get("origem")
+        or data.get("origemCliente")
         or ""
     )
-
+    # Q: panfleto_codigo
     data["panfleto_codigo"] = (
-        payload.get("panfleto_codigo")
-        or payload.get("panfleto_codigo_raw")
-        or payload.get("origem_panfleto_codigo")
-        or payload.get("panfletoCodigo")
-        or payload.get("panfletoCodigoRaw")
+        data.get("panfleto_codigo")
+        or data.get("panfleto_codigo_raw")
+        or data.get("origem_panfleto_codigo")
+        or data.get("panfletoCodigo")
+        or data.get("panfletoCodigoRaw")
+        or ""
+    )
+    # R: origem_outro_texto
+    data["origem_outro_texto"] = (
+        data.get("origem_outro_texto")
+        or data.get("origem_texto")
+        or data.get("origemOutroTexto")
         or ""
     )
 
-    data["origem_outro_texto"] = (
-        payload.get("origem_outro_texto")
-        or payload.get("origem_texto")
-        or payload.get("origemOutroTexto")
-        or ""
-    )
-    # >>> compatibilidade com intake antigo (Apps Script)
-    data["origem"]                 = data["origem_cliente"]       # P
-    data["origem_panfleto_codigo"] = data["panfleto_codigo"]      # Q
-    data["origem_texto"]           = data["origem_outro_texto"]   # R
+    # Compatibilidade antiga
+    data["origem"]                 = data["origem_cliente"]
+    data["origem_panfleto_codigo"] = data["panfleto_codigo"]
+    data["origem_texto"]           = data["origem_outro_texto"]
+
+    # Debug enxuto (mostra exatamente o que vai para o Sheets)
+    dbg = {k: data.get(k) for k in [
+        "message_id","contato","whatsapp_nome","especialidade","exame","forma","tipo",
+        "origem_cliente","panfleto_codigo","origem_outro_texto"
+    ]}
+    print("[SEND→Sheets] url:", CLINICA_SHEETS_URL)
+    print("[SEND→Sheets] campos:", json.dumps(dbg, ensure_ascii=False))
 
     try:
         r = requests.post(CLINICA_SHEETS_URL, json=data, timeout=12)
