@@ -226,7 +226,6 @@ def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
         "interactive":{"type":"button","body":{"text":body[:1024]},"action":{"buttons":[{"type":"reply","reply":b} for b in btns]}}
     }
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
-
 # ===== Botões/UI ==============================================================
 WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
 
@@ -365,7 +364,6 @@ def _normalize_panfleto(raw: str):
 
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
-
 # ===== Campos dinâmicos / Fluxo ==============================================
 def _comuns_consulta(d):
     campos = [("forma","Convênio ou Particular?")]
