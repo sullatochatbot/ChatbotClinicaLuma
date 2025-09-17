@@ -75,84 +75,51 @@ def _post_webapp(payload: dict) -> dict:
 
 def _map_to_captacao(d: dict) -> dict:
     """
-    Converte o 'data' do fluxo para os campos do WebApp,
-    preenchendo corretamente paciente (E:F:G) e responsável (H:I:J).
+    Converte o 'data' do fluxo para o payload do WebApp,
+    preservando campos originais e adicionando o que o intake espera.
     """
-    forma = (d.get("forma") or "").strip().lower()
-    convenio = (d.get("convenio") or d.get("operadora") or d.get("plano") or "").strip()
-    # se houver nome de convênio, garantimos tipo='convenio'
-    if convenio:
-        tipo = "convenio"
+    out = dict(d)  # <<< preserva especialidade/exame/forma/whatsapp_nome etc.
+
+    # Contato / identificação
+    out["message_id"]    = d.get("message_id") or out.get("message_id")
+    out["contato"]       = (d.get("contato") or "").strip()
+    out["whatsapp_nome"] = (d.get("whatsapp_nome") or "").strip()
+
+    # Forma (Convênio/Particular) — intake aceita alias 'forma'/'tipo'
+    if d.get("forma"):
+        out["forma"] = d.get("forma").strip()
     else:
-        tipo = "convenio" if "conv" in forma else ("particular" if "part" in forma else "")
-    espec_ex = d.get("especialidade") or d.get("exame") or d.get("tipo") or ""
+        # fallback antigo que inferia 'tipo'; mantido só por compatibilidade
+        forma_low = (d.get("forma") or "").strip().lower()
+        if "conv" in forma_low: out["forma"] = "Convênio"
+        elif "part" in forma_low: out["forma"] = "Particular"
 
-    # Helpers
-    def only_digits(s):
-        return "".join(ch for ch in (s or "") if ch.isdigit())
-
+    # Paciente / responsável (já vêm de d; garantimos normalização mínima)
+    def only_digits(s): return "".join(ch for ch in (s or "") if ch.isdigit())
     if d.get("_pac_outro"):
-        # Outro paciente → campos específicos
-        pac_nome = (d.get("paciente_nome") or "").strip()
-        pac_cpf  = only_digits(d.get("paciente_cpf") or d.get("paciente_documento") or "")
-        pac_nasc = (d.get("paciente_nasc") or "").strip()
-
-        # Responsável é quem está no WhatsApp
-        resp_nome = (d.get("nome") or "").strip()
-        resp_cpf  = only_digits(d.get("cpf") or "")
-        resp_nasc = (d.get("nasc") or "").strip()
+        out["paciente_cpf"] = only_digits(d.get("paciente_cpf") or d.get("paciente_documento") or "")
+        out["responsavel_cpf"] = only_digits(d.get("cpf") or "")
     else:
-        # Eu mesmo(a)
-        pac_nome = (d.get("nome") or "").strip()
-        pac_cpf  = only_digits(d.get("cpf") or "")
-        pac_nasc = (d.get("nasc") or "").strip()
+        out["paciente_nome"] = (d.get("nome") or "").strip()
+        out["paciente_cpf"]  = only_digits(d.get("cpf") or "")
+        out["paciente_nasc"] = (d.get("nasc") or "").strip()
 
-        resp_nome = ""
-        resp_cpf  = ""
-        resp_nasc = ""
+    # Marketing P / Q / R
+    out["origem_cliente"]      = (d.get("origem_cliente") or d.get("origem") or "").strip()           # P
+    out["panfleto_codigo"]     = (d.get("panfleto_codigo") or d.get("panfleto_codigo_raw") or "").strip()  # Q
+    out["origem_outro_texto"]  = (d.get("origem_outro_texto") or d.get("origem_texto") or "").strip()  # R
 
-    # >>> Campos de marketing (somente captação_chatbot)
-    origem_cliente      = (d.get("origem_cliente") or "").strip()
-    indicador_nome      = (d.get("indicador_nome") or "").strip()  # pode ficar vazio
-    panfleto_codigo     = (d.get("panfleto_codigo") or "").strip()
-    panfleto_codigo_raw = (d.get("panfleto_codigo_raw") or "").strip()
+    # Compatibilidade retro (se algum código seu antigo ainda ler esses nomes)
+    out["origem"]                 = out["origem_cliente"]
+    out["origem_panfleto_codigo"] = out["panfleto_codigo"]
+    out["origem_texto"]           = out["origem_outro_texto"]
 
-    return {
-        "fone": (d.get("contato") or "").strip(),
-        "nome_cap": (d.get("whatsapp_nome") or "").strip(),
-        "especialidade_exame": espec_ex,
+    # Remova chaves internas que não interessam no Sheets, se houver
+    out.pop("_pac_decidido", None)
+    out.pop("_origem_done", None)
+    out.pop("_compl_decidido", None)
 
-        # >>> campos aceitos pelo intake
-        "tipo": tipo,                       # "convenio" ou "particular"
-        "tipo_atendimento": tipo,
-        "forma_atendimento": tipo,
-        "convenio": convenio,               # nome do convênio (ex.: "Unimed")
-        "convenio_nome": convenio,
-
-        # Paciente
-        "paciente_nome": pac_nome,
-        "paciente_cpf":  pac_cpf,
-        "paciente_nasc": pac_nasc,
-
-        # Responsável
-        "responsavel_nome": resp_nome,
-        "responsavel_cpf":  resp_cpf,
-        "responsavel_nasc": resp_nasc,
-
-        # Endereço
-        "cep": (d.get("cep") or "").strip(),
-        "endereco": (d.get("endereco") or "").strip(),
-        "numero": (d.get("numero") or "").strip(),
-        "complemento": (d.get("complemento") or "").strip(),
-
-        # Marketing
-        "origem_cliente": origem_cliente,
-        "indicador_nome": indicador_nome,
-        "panfleto_codigo": panfleto_codigo,
-        "panfleto_codigo_raw": panfleto_codigo_raw,
-        "origem_outro_texto": (d.get("origem_outro_texto") or "").strip(),  # <<< R
-        "auto_refino": True,
-    }
+    return out
 
 # Mantém as assinaturas usadas no resto do código:
 def _upsert_paciente(ss, d): return
@@ -427,6 +394,9 @@ def responder_evento_mensagem(entry: dict) -> None:
     ses = SESS.setdefault(wa_to, {"route":"root","stage":"","data":{}, "last_at": None})
     ses["data"]["contato"] = wa_to
     ses["data"]["whatsapp_nome"] = profile_name
+
+    # >>> GARANTIR message_id único vindo do WhatsApp (evita dedupe)
+    ses["data"]["message_id"] = msg.get("id") or f"auto-{int(datetime.now().timestamp()*1000)}"
 
     # TTL: se passou do tempo, reinicia do zero
     try:
