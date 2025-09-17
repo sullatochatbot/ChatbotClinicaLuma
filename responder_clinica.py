@@ -102,7 +102,9 @@ def _post_webapp(payload: dict) -> dict:
         "message_id": data.get("message_id"),
     })
 
-    r = requests.post(CLINICA_SHEETS_URL, json=data, timeout=12)
+    url = f"{CLINICA_SHEETS_URL}?route=chatbot&secret={CLINICA_SHEETS_SECRET}"
+    print("[SEND→Sheets] final_url:", url)  # debug
+    r = requests.post(url, json=data, timeout=12)
 
     try:
         r = requests.post(CLINICA_SHEETS_URL, json=data, timeout=12)
