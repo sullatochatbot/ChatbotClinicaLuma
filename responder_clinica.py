@@ -1,6 +1,7 @@
 # responder_clinica.py — Clínica Luma (Especialidades: lista numerada por texto; Exames: lista numerada)
 # ==============================================================================
 import os, re, json, requests
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, List
@@ -158,6 +159,12 @@ def _map_to_captacao(d: dict) -> dict:
     out["origem_panfleto_codigo"] = out["panfleto_codigo"]
     out["origem_texto"]           = out["origem_outro_texto"]
 
+    # >>> NOVO: sugestões livres (se houver)
+    if d.get("sugestao_especialidade"):
+        out["sugestao_especialidade"] = (d.get("sugestao_especialidade") or "").strip()
+    if d.get("sugestao_exame"):
+        out["sugestao_exame"] = (d.get("sugestao_exame") or "").strip()
+
     # Remova chaves internas que não interessam no Sheets, se houver
     out.pop("_pac_decidido", None)
     out.pop("_origem_done", None)
@@ -180,7 +187,14 @@ def _add_solicitacao(ss, d):
         return
     _ULTIMAS_CHAVES.add(chave)
 
-    _post_webapp(_map_to_captacao(d))
+    # >>> NOVO: dedupe consciente por fluxo (consulta vs exames)
+    payload = _map_to_captacao(d)
+    base = (d.get("wa_id") or d.get("contato") or "").strip()
+    tipo = (d.get("tipo") or ("exames" if d.get("exame") else "consulta")).lower()
+    payload["dedupe_key"] = f"{base}-{tipo}-{int(time.time())}"
+
+    _post_webapp(payload)        # ← mantenha só esta
+    # _post_webapp(_map_to_captacao(d))  # ← não usar (era a chamada antiga)
 
 def _add_pesquisa(ss, d):
     dd = dict(d)
