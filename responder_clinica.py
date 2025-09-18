@@ -132,10 +132,18 @@ def _map_to_captacao(d: dict) -> dict:
 
     # Paciente / responsável (já vêm de d; garantimos normalização mínima)
     def only_digits(s): return "".join(ch for ch in (s or "") if ch.isdigit())
+
+    # Sempre preencher os 3 campos do RESPONSÁVEL (quem está falando no WhatsApp)
+    out["responsavel_nome"] = (d.get("nome") or "").strip()
+    out["responsavel_cpf"]  = only_digits(d.get("cpf") or "")
+    out["responsavel_nasc"] = (d.get("nasc") or "").strip()
+
     if d.get("_pac_outro"):
+        # Paciente é outra pessoa → manter paciente_* separados
         out["paciente_cpf"] = only_digits(d.get("paciente_cpf") or d.get("paciente_documento") or "")
-        out["responsavel_cpf"] = only_digits(d.get("cpf") or "")
+        # (paciente_nome e paciente_nasc já são coletados no fluxo e vão em out se existirem)
     else:
+        # Paciente é o próprio responsável → espelhar nos campos paciente_*
         out["paciente_nome"] = (d.get("nome") or "").strip()
         out["paciente_cpf"]  = only_digits(d.get("cpf") or "")
         out["paciente_nasc"] = (d.get("nasc") or "").strip()
