@@ -124,6 +124,11 @@ def _map_to_captacao(d: dict) -> dict:
         forma_low = (d.get("forma") or "").strip().lower()
         if "conv" in forma_low: out["forma"] = "Convênio"
         elif "part" in forma_low: out["forma"] = "Particular"
+    
+        # >>> NOVO: para o Sheets, se for Convênio e houver nome do convênio,
+        # escrevemos o NOME do convênio na coluna "tipo (Particular ou nome do convênio)"
+    if (out.get("forma","").lower().startswith("conv")) and d.get("convenio"):
+        out["forma"] = d["convenio"].strip()
 
     # Paciente / responsável (já vêm de d; garantimos normalização mínima)
     def only_digits(s): return "".join(ch for ch in (s or "") if ch.isdigit())
