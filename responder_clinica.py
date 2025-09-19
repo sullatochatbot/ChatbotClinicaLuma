@@ -141,12 +141,26 @@ def _map_to_captacao(d: dict) -> dict:
 
     if d.get("_pac_outro"):
         # Paciente é outra pessoa → manter paciente_* separados
-        out["paciente_cpf"] = only_digits(d.get("paciente_cpf") or d.get("paciente_documento") or "")
+        cpf_pac = (
+            d.get("paciente_cpf")
+            or d.get("paciente_documento")
+            or d.get("cpf_paciente")
+            or d.get("doc_paciente")
+            or d.get("documento_paciente")
+        )
+        out["paciente_cpf"] = only_digits(cpf_pac or "")
+
         # (paciente_nome e paciente_nasc já são coletados no fluxo e vão em out se existirem)
     else:
         # Paciente é o próprio responsável → espelhar nos campos paciente_*
         out["paciente_nome"] = (d.get("nome") or "").strip()
-        out["paciente_cpf"]  = only_digits(d.get("cpf") or "")
+        cpf_self = (
+            d.get("cpf")
+            or d.get("documento")
+            or d.get("paciente_cpf")
+            or d.get("cpf_paciente")
+        )
+        out["paciente_cpf"]  = only_digits(cpf_self or "")
         out["paciente_nasc"] = (d.get("nasc") or "").strip()
 
     # Marketing P / Q / R
