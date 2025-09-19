@@ -220,32 +220,37 @@ def _add_pesquisa(ss, d):
     _post_webapp(_map_to_captacao(dd))
 
 def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
-    # Normaliza
+    # Normaliza entrada
     cat = (categoria or "").lower().strip()
     txt = (texto or "").strip()
     if not txt:
         return
 
-    payload = {}
+    # Base da linha (identidade + carimbo de data/hora)
+    payload = {
+        "contato": (wa_id or "").strip(),
+        "whatsapp_nome": ((SESS.get(wa_id) or {}).get("data") or {}).get("whatsapp_nome", "").strip(),
+        "tipo": "sugestao",
+        "timestamp_local": _hora_sp(),
+    }
 
-    # Se vier “especialidade” ou “exame”, preenche específico; senão, grava em ambos.
+    # Campo único: especialidade OU exame (conforme escolha do usuário)
     if "exame" in cat and "especial" not in cat:
         payload["sugestao_exame"] = txt
     elif "especial" in cat and "exame" not in cat:
         payload["sugestao_especialidade"] = txt
     else:
+        # fallback: se vier ambíguo, mantém apenas um campo
         payload["sugestao_especialidade"] = txt
-        payload["sugestao_exame"] = txt
 
-    # Garante que não caia no de-dupe do intake
+    # Dedupe leve por usuário+tipo
     import time
-    base = (wa_id or ss.get("contato") or ss.get("fone") or "").strip()
+    base = (payload["contato"] or "anon")
     payload["dedupe_key"] = f"{base}-sugestao-{int(time.time())}"
 
-    # Envia para o WebApp (rota 'chatbot' já é padrão no _post_webapp)
     _post_webapp(payload)
 
-    # Mensagem de fechamento (use a mesma função que você já utiliza p/ responder texto)
+    # Mensagem de fechamento (inalterada)
     try:
         enviar_texto = globals().get("wa_text") or globals().get("send_text") or globals().get("responder_texto")
         if callable(enviar_texto):
@@ -542,9 +547,20 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"mais3","stage":"","data":{}}
             _send_buttons(wa_to, "Mais opções:", BTN_MAIS_3); return
         if bid_id == "op_endereco":
+            # LOG leve do clique em Endereço (quem e quando)
+            try:
+                _post_webapp({
+                    "tipo": "acesso_endereco",
+                    "contato": (wa_to or "").strip(),
+                    "whatsapp_nome": (profile_name or "").strip(),
+                    "timestamp_local": _hora_sp(),
+                })
+            except Exception as e:
+                print("[LOG ENDERECO] aviso:", e)
+
             txt = (
                 "📍 *Endereço*\n"
-                "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n\n"
+                "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 –   São Paulo/SP\n\n"
                 f"🌐 *Site*: {LINK_SITE}\n"
                 f"📷 *Instagram*: {LINK_INSTAGRAM}\n"
                 "📘 *Facebook*: Clinica Luma\n"
@@ -555,6 +571,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             )
             _send_text(wa_to, txt)
             _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT); return
+
         if bid_id == "op_editar_endereco":
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _send_text(wa_to, "Vamos atualizar seus dados. Primeiro:")
