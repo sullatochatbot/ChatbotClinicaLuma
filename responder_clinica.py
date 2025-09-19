@@ -206,7 +206,38 @@ def _add_pesquisa(ss, d):
     _post_webapp(_map_to_captacao(dd))
 
 def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
-    print("[Sugestao]", categoria, texto, wa_id)
+    # Normaliza
+    cat = (categoria or "").lower().strip()
+    txt = (texto or "").strip()
+    if not txt:
+        return
+
+    payload = {}
+
+    # Se vier “especialidade” ou “exame”, preenche específico; senão, grava em ambos.
+    if "exame" in cat and "especial" not in cat:
+        payload["sugestao_exame"] = txt
+    elif "especial" in cat and "exame" not in cat:
+        payload["sugestao_especialidade"] = txt
+    else:
+        payload["sugestao_especialidade"] = txt
+        payload["sugestao_exame"] = txt
+
+    # Garante que não caia no de-dupe do intake
+    import time
+    base = (wa_id or ss.get("contato") or ss.get("fone") or "").strip()
+    payload["dedupe_key"] = f"{base}-sugestao-{int(time.time())}"
+
+    # Envia para o WebApp (rota 'chatbot' já é padrão no _post_webapp)
+    _post_webapp(payload)
+
+    # Mensagem de fechamento (use a mesma função que você já utiliza p/ responder texto)
+    try:
+        enviar_texto = globals().get("wa_text") or globals().get("send_text") or globals().get("responder_texto")
+        if callable(enviar_texto):
+            enviar_texto(wa_id, "🙏 Obrigado pela sugestão! Já anotamos aqui. Atendimento encerrado.")
+    except Exception as e:
+        print("[SUGESTAO] aviso: não consegui enviar msg de encerramento:", e)
 
 # ===== Utilitários ============================================================
 def _hora_sp():
