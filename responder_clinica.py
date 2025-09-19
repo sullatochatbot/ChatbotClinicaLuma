@@ -230,10 +230,10 @@ def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
     payload = {
         "contato": (wa_id or "").strip(),
         "whatsapp_nome": ((SESS.get(wa_id) or {}).get("data") or {}).get("whatsapp_nome", "").strip(),
-        "tipo": "sugestao",
         "timestamp_local": _hora_sp(),
+        "tipo": "sugestao",               # Coluna E: classificador
+        "especialidade/exame": txt,       # Coluna D: conteúdo real digitado
     }
-
     # Campo único: especialidade OU exame (conforme escolha do usuário)
     if "exame" in cat and "especial" not in cat:
         payload["sugestao_exame"] = txt
@@ -549,18 +549,19 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid_id == "op_endereco":
             # LOG leve do clique em Endereço (quem e quando)
             try:
-                _post_webapp({
-                    "tipo": "acesso_endereco",
-                    "contato": (wa_to or "").strip(),
-                    "whatsapp_nome": (profile_name or "").strip(),
-                    "timestamp_local": _hora_sp(),
-                })
+                    _post_webapp({
+                        "tipo": "acesso_endereco",        # Coluna E
+                        "especialidade/exame": "endereco",# Coluna D
+                        "contato": (wa_to or "").strip(),
+                        "whatsapp_nome": (profile_name or "").strip(),
+                        "timestamp_local": _hora_sp(),
+                    })
             except Exception as e:
                 print("[LOG ENDERECO] aviso:", e)
 
             txt = (
                 "📍 *Endereço*\n"
-                "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 –   São Paulo/SP\n\n"
+                "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n\n"
                 f"🌐 *Site*: {LINK_SITE}\n"
                 f"📷 *Instagram*: {LINK_INSTAGRAM}\n"
                 "📘 *Facebook*: Clinica Luma\n"
