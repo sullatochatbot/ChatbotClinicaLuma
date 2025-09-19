@@ -231,17 +231,14 @@ def _add_sugestao(ss, categoria: str, texto: str, wa_id: str):
         "contato": (wa_id or "").strip(),
         "whatsapp_nome": ((SESS.get(wa_id) or {}).get("data") or {}).get("whatsapp_nome", "").strip(),
         "timestamp_local": _hora_sp(),
-        "tipo": "sugestao",               # Coluna E: classificador
-        "especialidade/exame": txt,       # Coluna D: conteúdo real digitado
+        "tipo": "sugestao",        # Coluna E: classificador
     }
-    # Campo único: especialidade OU exame (conforme escolha do usuário)
+
+    # Preencha D com o campo OFICIAL que o intake entende
     if "exame" in cat and "especial" not in cat:
-        payload["sugestao_exame"] = txt
-    elif "especial" in cat and "exame" not in cat:
-        payload["sugestao_especialidade"] = txt
+        payload["exame"] = txt                 # Coluna D (via intake)
     else:
-        # fallback: se vier ambíguo, mantém apenas um campo
-        payload["sugestao_especialidade"] = txt
+        payload["especialidade"] = txt         # Coluna D (via intake)
 
     # Dedupe leve por usuário+tipo
     import time
@@ -550,8 +547,8 @@ def responder_evento_mensagem(entry: dict) -> None:
             # LOG leve do clique em Endereço (quem e quando)
             try:
                     _post_webapp({
-                        "tipo": "acesso_endereco",        # Coluna E
-                        "especialidade/exame": "endereco",# Coluna D
+                        "tipo": "acesso_endereco",         # Coluna E
+                        "especialidade": "endereco",       # Coluna D (campo oficial)
                         "contato": (wa_to or "").strip(),
                         "whatsapp_nome": (profile_name or "").strip(),
                         "timestamp_local": _hora_sp(),
