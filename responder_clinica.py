@@ -344,7 +344,7 @@ MSG_SUGESTOES = ("💡 Ajude a Clínica Luma a melhorar! Diga quais *especialida
 ESPECIALIDADES_ORDER = [
     "Clínico Geral","Dermatologia e Estética","Endocrinologia",
     "Fonoaudiologia","Medicina do Trabalho",
-    "Ortopedia","Pediatria","Psiquiatria","Terapia ABA",
+    "Ortopedia","Pediatria","Psiquiatria",
 ]
 
 def _especialidade_menu_texto():
@@ -362,6 +362,7 @@ EXAMES_ORDER = [
     "Exames Laboratoriais",
     "Eletrocardiograma",
     "Raio X",
+    "Toxicológico - cnh",
     # Adicione novos exames aqui mantendo o rótulo canônico que você deseja ver no Sheets
 ]
 
