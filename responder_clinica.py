@@ -359,6 +359,7 @@ def _ask_especialidade_num(wa_to, ses):
     _send_text(wa_to, _especialidade_menu_texto())
 
 EXAMES_ORDER = [
+    "Admissional / Demissional",   # ← NOVO exame incluído
     "Exames Laboratoriais",
     "Eletrocardiograma",
     "Raio X",
