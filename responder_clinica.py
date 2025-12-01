@@ -342,9 +342,15 @@ MSG_SUGESTOES = ("💡 Ajude a Clínica Luma a melhorar! Diga quais *especialida
 
 # ===== Catálogos / Especialidades e Exames ===================================
 ESPECIALIDADES_ORDER = [
-    "Clínico Geral","Dermatologia e Estética","Endocrinologia",
-    "Fonoaudiologia","Medicina do Trabalho",
-    "Ortopedia","Pediatria","Psiquiatria",
+    "Clínico Geral",
+    "Dermatologia e Estética",
+    "Endocrinologia",
+    "Fonoaudiologia",
+    "Medicina do Trabalho",
+    "Nutrologo / Med. Esp. Emagrecimento 30+",
+    "Ortopedia",
+    "Pediatria",
+    "Psiquiatria",
 ]
 
 def _especialidade_menu_texto():
