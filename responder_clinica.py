@@ -347,7 +347,7 @@ ESPECIALIDADES_ORDER = [
     "Endocrinologia",
     "Fonoaudiologia",
     "Medicina do Trabalho",
-    "Nutrologo / Med. Esp. Emagrecimento 30+",
+    "Nutrólogo / Med. Esportiva – Emagrecimento 30+",
     "Ortopedia",
     "Pediatria",
     "Psiquiatria",
