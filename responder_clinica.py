@@ -455,6 +455,7 @@ def _normalize_panfleto(raw: str):
 
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
+ACESSOS_DIA: Dict[str, str] = {}
 # ===== Campos dinâmicos / Fluxo ==============================================
 def _comuns_consulta(d):
     campos = [("forma","Convênio ou Particular?")]
@@ -534,9 +535,10 @@ FECHAMENTO = {
     "consulta":"✅ Obrigado! Por favor, aguarde que uma atendente entrará em contato para confirmar a consulta.",
     "exames":"✅ Perfeito! Por favor, aguarde que uma atendente entrará em contato com você para agendar o exame."
 }
+
 # ===== Handler principal ======================================================
 def responder_evento_mensagem(entry: dict) -> None:
-    ss = None  # persistência via WebApp — não precisamos de conexão local ao Sheets
+    ss = None
 
     val      = (entry.get("changes") or [{}])[0].get("value", {})
     messages = val.get("messages", [])
@@ -549,14 +551,12 @@ def responder_evento_mensagem(entry: dict) -> None:
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
     mtype        = msg.get("type")
 
-    # 🔎 verifica se já existia sessão antes
-    # cria/recupera sessão
+    # ===== cria/recupera sessão =====
     ses = SESS.get(wa_to)
-
     now = _now_sp()
+    today = now.strftime("%Y-%m-%d")
 
     if not ses:
-        # nova sessão
         ses = {
             "route": "root",
             "stage": "",
@@ -564,7 +564,11 @@ def responder_evento_mensagem(entry: dict) -> None:
             "last_at": now
         }
         SESS[wa_to] = ses
+    else:
+        ses["last_at"] = now
 
+    # ===== REGISTRO DE ACESSO APENAS 1x POR DIA =====
+    if ACESSOS_DIA.get(wa_to) != today:
         try:
             _post_webapp({
                 "tipo": "acesso_inicial",
@@ -572,41 +576,13 @@ def responder_evento_mensagem(entry: dict) -> None:
                 "contato": wa_to,
                 "whatsapp_nome": profile_name,
                 "timestamp_local": _hora_sp(),
-                "message_id": f"acesso-{wa_to}-{int(time.time())}"
+                "message_id": f"acesso-dia-{wa_to}-{today}"
             })
+            ACESSOS_DIA[wa_to] = today
         except Exception as e:
-            print("[ACESSO NOVO] erro:", e)
+            print("[ACESSO DIA] erro:", e)
 
-    else:
-        last = ses.get("last_at")
-
-        if last and (now - last).total_seconds() > SESSION_TTL_MIN * 60:
-            try:
-                _post_webapp({
-                    "tipo": "acesso_inicial",
-                    "especialidade": "acesso_inicial",
-                    "contato": wa_to,
-                    "whatsapp_nome": profile_name,
-                    "timestamp_local": _hora_sp(),
-                    "message_id": f"acesso-{wa_to}-{int(time.time())}"
-                })
-            except Exception as e:
-                print("[ACESSO EXPIRADO] erro:", e)
-
-        ses["last_at"] = now
-
-    # sempre atualizar dados base
-    ses["data"]["contato"] = wa_to
-    ses["data"]["whatsapp_nome"] = profile_name
-
-    # >>> GARANTIR message_id único vindo do WhatsApp (evita dedupe)
-    # >>> CRÍTICO: GARANTIR message_id ÚNICO
-    # Se não vier ID do WhatsApp, geramos um ID próprio baseado em timestamp.
-    # Isso evita bloqueio por deduplicação no WebApp/Sheets.
-    # NÃO REMOVER esta linha — sem isso o lead pode não ser salvo.
-    ses["data"]["message_id"] = msg.get("id") or f"auto-{int(datetime.now().timestamp()*1000)}"
-
-    # ==========================================================
+# ==========================================================
 # ⚠ BLOCO TTL ANTIGO DESATIVADO
 # A lógica de expiração agora está no início do handler.
 # Manter comentado para evitar conflito de controle de sessão.
