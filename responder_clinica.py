@@ -458,24 +458,48 @@ SESS: Dict[str, Dict[str, Any]] = {}
 # ===== Campos dinâmicos / Fluxo ==============================================
 def _comuns_consulta(d):
     campos = [("forma","Convênio ou Particular?")]
-    if d.get("forma")=="Convênio": campos.append(("convenio","Nome do convênio?"))
-    campos += [("especialidade","Qual especialidade?"),
-               ("nome","Informe seu nome completo:"),
-               ("cpf","Informe seu CPF:"),
-               ("nasc","Data de nascimento (dd/mm/aaaa):"),
-               ("cep","Informe seu CEP (8 dígitos, ex: 03878000):"),
-               ("numero","Informe o número:")]
+
+    if d.get("forma")=="Convênio":
+        campos.append(("convenio","Nome do convênio?"))
+
+    campos += [
+        ("especialidade","Qual especialidade?"),
+        ("nome","Informe seu nome completo:")
+    ]
+
+    # ===== CAMPOS DESATIVADOS TEMPORARIAMENTE =====
+    # Para reativar, basta remover o comentário abaixo
+
+    # campos += [
+    #     ("cpf","Informe seu CPF:"),
+    #     ("nasc","Data de nascimento (dd/mm/aaaa):"),
+    #     ("cep","Informe seu CEP (8 dígitos, ex: 03878000):"),
+    #     ("numero","Informe o número:")
+    # ]
+
     return campos
 
 def _comuns_exames(d):
     campos = [("forma","Convênio ou Particular?")]
-    if d.get("forma")=="Convênio": campos.append(("convenio","Nome do convênio?"))
-    campos += [("exame","Qual exame?"),
-               ("nome","Informe seu nome completo:"),
-               ("cpf","Informe seu CPF:"),
-               ("nasc","Data de nascimento (dd/mm/aaaa):"),
-               ("cep","Informe seu CEP (8 dígitos, ex: 03878000):"),
-               ("numero","Informe o número:")]
+
+    if d.get("forma")=="Convênio":
+        campos.append(("convenio","Nome do convênio?"))
+
+    campos += [
+        ("exame","Qual exame?"),
+        ("nome","Informe seu nome completo:")
+    ]
+
+    # ===== CAMPOS DESATIVADOS TEMPORARIAMENTE =====
+    # Para reativar depois, basta remover o comentário abaixo
+
+    # campos += [
+    #     ("cpf","Informe seu CPF:"),
+    #     ("nasc","Data de nascimento (dd/mm/aaaa):"),
+    #     ("cep","Informe seu CEP (8 dígitos, ex: 03878000):"),
+    #     ("numero","Informe o número:")
+    # ]
+
     return campos
 
 def _fields_for(route, d):
@@ -806,14 +830,16 @@ def responder_evento_mensagem(entry: dict) -> None:
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     route = ses.get("route"); data  = ses.get("data", {})
 
-    # Completar endereço via CEP
-    if route in {"consulta","exames","editar_endereco"}:
-        if data.get("cep") and data.get("numero") and ("complemento" in data) and not data.get("endereco"):
-            end = _montar_endereco_via_cep(data["cep"], data["numero"], data.get("complemento",""))
-            if end: data["endereco"] = end
-            else:
-                ses["stage"] = "cep"; SESS[wa_to] = ses
-                _send_text(wa_to, "Não localizei o CEP. Envie 8 dígitos ou informe o endereço completo."); return
+    # ===== ENDEREÇO AUTOMÁTICO DESATIVADO TEMPORARIAMENTE =====
+# if route in {"consulta","exames","editar_endereco"}:
+#     if data.get("cep") and data.get("numero") and ("complemento" in data) and not data.get("endereco"):
+#         end = _montar_endereco_via_cep(data["cep"], data["numero"], data.get("complemento",""))
+#         if end: data["endereco"] = end
+#         else:
+#             ses["stage"] = "cep"
+#             SESS[wa_to] = ses
+#             _send_text(wa_to, "Não localizei o CEP. Envie 8 dígitos ou informe o endereço completo.")
+#             return
 
     # Bifurcação paciente após escolha de forma+especialidade/exame
     if route == "consulta" and data.get("forma") and data.get("especialidade") and not data.get("_pac_decidido"):
