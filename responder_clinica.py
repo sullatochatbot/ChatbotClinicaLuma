@@ -669,15 +669,24 @@ def responder_evento_mensagem(entry: dict) -> None:
                 ses["data"]["_pac_outro"] = True; ses["stage"] = "paciente_nome"; SESS[wa_to] = ses
                 _send_text(wa_to, "Nome completo do paciente:"); return
 
-        if bid_id in {"pacdoc_sim","pacdoc_nao"}:
-            ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
-            if bid_id == "pacdoc_sim":
-                ses["stage"] = "paciente_doc"; SESS[wa_to] = ses
-                _send_text(wa_to, "Informe o CPF ou RG do paciente:"); return
-            else:
-                ses["data"]["paciente_documento"] = "Não possui"
-                ses["stage"] = None; SESS[wa_to] = ses
-                _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+        # ===== BLOCO CPF/RG DO PACIENTE DESATIVADO TEMPORARIAMENTE =====
+# Não estamos mais coletando documento do paciente.
+# Mantido aqui apenas para possível reativação futura.
+
+# if bid_id in {"pacdoc_sim","pacdoc_nao"}:
+#     ses = SESS.get(wa_to) or {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
+#     if bid_id == "pacdoc_sim":
+#         ses["stage"] = "paciente_doc"
+#         SESS[wa_to] = ses
+#         _send_text(wa_to, "Informe o CPF ou RG do paciente:")
+#         return
+#     else:
+#         ses["data"]["paciente_documento"] = "Não possui"
+#         ses["stage"] = None
+#         SESS[wa_to] = ses
+#         _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+#         return
+
 
         if bid_id in {"confirmar","corrigir"}:
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
@@ -956,21 +965,32 @@ def _continue_form(ss, wa_to, ses, user_text):
 
     # Paciente "outro"
     if data.get("_pac_outro"):
+
         if stage == "paciente_nome":
             data["paciente_nome"] = (user_text or "").strip()
-            ses["stage"] = "paciente_nasc"; SESS[wa_to] = ses
-            _send_text(wa_to, "Data de nascimento do paciente (dd/mm/aaaa):"); return
-        if stage == "paciente_nasc":
-            txt = _normalize("nasc", user_text); err = _validate("nasc", txt)
-            if err:
-                _send_text(wa_to, err); _send_text(wa_to, "Data de nascimento do paciente (dd/mm/aaaa):"); return
-            data["paciente_nasc"] = txt
-            ses["stage"] = "paciente_doc_choice"; SESS[wa_to] = ses
-            _send_buttons(wa_to, "O paciente possui CPF ou RG?", BTN_PAC_DOC); return
-        if stage == "paciente_doc":
-            data["paciente_documento"] = (user_text or "").strip()
-            ses["stage"] = None; SESS[wa_to] = ses
-            _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+
+            # ===== DESATIVADO TEMPORARIAMENTE =====
+            # Não vamos mais pedir nascimento nem documento do paciente
+            # Para reativar no futuro, basta remover o comentário abaixo
+
+            # ses["stage"] = "paciente_nasc"
+            # SESS[wa_to] = ses
+            # _send_text(wa_to, "Data de nascimento do paciente (dd/mm/aaaa):")
+            # return
+
+            # >>> Agora seguimos direto
+            ses["stage"] = None
+            SESS[wa_to] = ses
+            _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+            return
+
+        # ===== BLOCO DOCUMENTO PACIENTE DESATIVADO TEMPORARIAMENTE =====
+        # if stage == "paciente_doc":
+        #     data["paciente_documento"] = (user_text or "").strip()
+        #     ses["stage"] = None
+        #     SESS[wa_to] = ses
+        #     _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
+        #     return
 
     # Endereço
     if route in {"consulta","exames","editar_endereco"} and stage == "numero":
