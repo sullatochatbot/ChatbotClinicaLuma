@@ -23,7 +23,7 @@ HEADERS   = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}", "Content-Type": "appl
 _ULTIMAS_CHAVES = set()
 
 # Sessão expira após X minutos sem interação
-SESSION_TTL_MIN = 1  # TESTE: sessão expira em 1 minuto
+SESSION_TTL_MIN = 120
 
 # ===== Persistência via WebApp ===============================================
 def _post_webapp(payload: dict) -> dict:
