@@ -549,7 +549,7 @@ def responder_evento_mensagem(entry: dict) -> None:
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
     mtype        = msg.get("type")
 
-    # 🔎 verifica se é a primeira vez que esse número aparece
+    # 🔎 verifica se já existia sessão antes
     is_new_session = wa_to not in SESS
 
     # cria/recupera sessão
@@ -564,9 +564,25 @@ def responder_evento_mensagem(entry: dict) -> None:
     ses["data"]["whatsapp_nome"] = profile_name
 
     # ===============================
-    # 🔥 REGISTRO DE ACESSO INICIAL REAL
+    # 🔥 CONTROLE DE TIMEOUT
     # ===============================
-    if is_new_session:
+    now = _now_sp()
+    last = ses.get("last_at")
+
+    session_expired = False
+
+    if last:
+        diff = (now - last).total_seconds()
+        if diff > SESSION_TTL_MIN * 60:
+            session_expired = True
+
+    # atualiza último acesso
+    ses["last_at"] = now
+
+    # ===============================
+    # 🔥 REGISTRO DE ACESSO (IGUAL OFICINA)
+    # ===============================
+    if is_new_session or session_expired:
         try:
             _post_webapp({
                 "tipo": "acesso_inicial",
@@ -576,7 +592,7 @@ def responder_evento_mensagem(entry: dict) -> None:
                 "timestamp_local": _hora_sp()
             })
         except Exception as e:
-            print("[ACESSO_INICIAL] erro:", e)
+            print("[ACESSO] erro:", e)
 
     # >>> GARANTIR message_id único vindo do WhatsApp (evita dedupe)
     # >>> CRÍTICO: GARANTIR message_id ÚNICO
