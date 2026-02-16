@@ -90,20 +90,7 @@ def webhook():
 
                 _mark_processed([mid])
 
-                # === REGISTRA ACESSO SEMPRE ===
-                try:
-                    responder._post_webapp({
-                        "tipo": "acesso_inicial",
-                        "especialidade": "acesso_inicial",
-                        "contato": contacts[0].get("wa_id") if contacts else "",
-                        "whatsapp_nome": (contacts[0].get("profile") or {}).get("name") if contacts else "",
-                        "timestamp_local": hora_sp(),
-                        "message_id": f"acesso-{mid}"
-                    })
-                except Exception as e:
-                    print(f"[{hora_sp()}] ⚠️ Erro registrando acesso: {e}")
-
-                # === ENVIA PARA O RESPONDER ===
+                # === ENVIA PARA O RESPONDER (sem registrar acesso aqui) ===
                 single_entry = {
                     "changes": [{
                         "value": {
