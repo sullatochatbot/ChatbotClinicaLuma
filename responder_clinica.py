@@ -541,17 +541,42 @@ def responder_evento_mensagem(entry: dict) -> None:
     val      = (entry.get("changes") or [{}])[0].get("value", {})
     messages = val.get("messages", [])
     contacts = val.get("contacts", [])
-    if not messages or not contacts: return
+    if not messages or not contacts:
+        return
 
     msg          = messages[0]
     wa_to        = contacts[0].get("wa_id") or msg.get("from")
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
     mtype        = msg.get("type")
 
+    # 🔎 verifica se é a primeira vez que esse número aparece
+    is_new_session = wa_to not in SESS
+
     # cria/recupera sessão
-    ses = SESS.setdefault(wa_to, {"route":"root","stage":"","data":{}, "last_at": None})
+    ses = SESS.setdefault(wa_to, {
+        "route": "root",
+        "stage": "",
+        "data": {},
+        "last_at": None
+    })
+
     ses["data"]["contato"] = wa_to
     ses["data"]["whatsapp_nome"] = profile_name
+
+    # ===============================
+    # 🔥 REGISTRO DE ACESSO INICIAL REAL
+    # ===============================
+    if is_new_session:
+        try:
+            _post_webapp({
+                "tipo": "acesso_inicial",
+                "especialidade": "acesso_inicial",
+                "contato": wa_to,
+                "whatsapp_nome": profile_name,
+                "timestamp_local": _hora_sp()
+            })
+        except Exception as e:
+            print("[ACESSO_INICIAL] erro:", e)
 
     # >>> GARANTIR message_id único vindo do WhatsApp (evita dedupe)
     # >>> CRÍTICO: GARANTIR message_id ÚNICO
