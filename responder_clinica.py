@@ -23,7 +23,7 @@ HEADERS   = {"Authorization": f"Bearer {WA_ACCESS_TOKEN}", "Content-Type": "appl
 _ULTIMAS_CHAVES = set()
 
 # Sessão expira após X minutos sem interação
-SESSION_TTL_MIN = 10  # ajuste se quiser
+SESSION_TTL_MIN = 1  # TESTE: sessão expira em 1 minuto
 
 # ===== Persistência via WebApp ===============================================
 def _post_webapp(payload: dict) -> dict:
@@ -563,25 +563,17 @@ def responder_evento_mensagem(entry: dict) -> None:
     ses["data"]["contato"] = wa_to
     ses["data"]["whatsapp_nome"] = profile_name
 
-    # ===============================
-    # 🔥 CONTROLE DE TIMEOUT
-    # ===============================
     now = _now_sp()
     last = ses.get("last_at")
 
     session_expired = False
 
-    if last:
+    if last is not None:
         diff = (now - last).total_seconds()
         if diff > SESSION_TTL_MIN * 60:
             session_expired = True
 
-    # atualiza último acesso
-    ses["last_at"] = now
-
-    # ===============================
-    # 🔥 REGISTRO DE ACESSO (IGUAL OFICINA)
-    # ===============================
+    # 🔥 REGISTRA ACESSO
     if is_new_session or session_expired:
         try:
             _post_webapp({
@@ -594,6 +586,9 @@ def responder_evento_mensagem(entry: dict) -> None:
         except Exception as e:
             print("[ACESSO] erro:", e)
 
+    # Atualiza somente aqui
+    ses["last_at"] = now
+
     # >>> GARANTIR message_id único vindo do WhatsApp (evita dedupe)
     # >>> CRÍTICO: GARANTIR message_id ÚNICO
     # Se não vier ID do WhatsApp, geramos um ID próprio baseado em timestamp.
@@ -601,17 +596,21 @@ def responder_evento_mensagem(entry: dict) -> None:
     # NÃO REMOVER esta linha — sem isso o lead pode não ser salvo.
     ses["data"]["message_id"] = msg.get("id") or f"auto-{int(datetime.now().timestamp()*1000)}"
 
-    # TTL: se passou do tempo, reinicia do zero
-    try:
-        now  = _now_sp()
-        last = ses.get("last_at")
-        if last and (now - last).total_seconds() > SESSION_TTL_MIN * 60:
-            SESS[wa_to] = {"route":"root","stage":"","data":{}, "last_at": now}
-            _send_buttons(wa_to, "Reiniciei seu atendimento para começarmos do zero 👇", BTN_ROOT)
-            return
-        ses["last_at"] = now
-    except Exception:
-        ses["last_at"] = _now_sp()
+    # ==========================================================
+# ⚠ BLOCO TTL ANTIGO DESATIVADO
+# A lógica de expiração agora está no início do handler.
+# Manter comentado para evitar conflito de controle de sessão.
+# ==========================================================
+# try:
+#     now  = _now_sp()
+#     last = ses.get("last_at")
+#     if last and (now - last).total_seconds() > SESSION_TTL_MIN * 60:
+#         SESS[wa_to] = {"route":"root","stage":"","data":{}, "last_at": now}
+#         _send_buttons(wa_to, "Reiniciei seu atendimento para começarmos do zero 👇", BTN_ROOT)
+#         return
+#     ses["last_at"] = now
+# except Exception:
+#     ses["last_at"] = _now_sp()
 
     # ===== INTERACTIVE =======================================================
     if mtype == "interactive":
