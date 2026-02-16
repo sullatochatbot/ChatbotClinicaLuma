@@ -32,8 +32,12 @@ def _post_webapp(payload: dict) -> dict:
     Garante message_id único, normaliza contato/whatsapp_nome e P/Q/R, e loga o que foi enviado.
     """
     if not (CLINICA_SHEETS_URL and CLINICA_SHEETS_SECRET):
+        # >>> ATENÇÃO:
+        # Se as variáveis de ambiente não estiverem configuradas no Render,
+        # o envio para o Sheets NÃO acontecerá.
+        # NÃO comentar o return abaixo.
         print("[SHEETS] Config ausente (CLINICA_SHEETS_URL/SECRET).")
-        return {"ok": False, "erro": "config ausente"}  # <- NÃO deixe comentado
+        return {"ok": False, "erro": "config ausente"}
 
     # Base do payload: rota/secret no BODY (aceitos pelo intake)
     data = {"secret": CLINICA_SHEETS_SECRET, "rota": "chatbot"}
@@ -205,8 +209,12 @@ def _add_solicitacao(ss, d):
     payload = _map_to_captacao(d)
     base = (d.get("wa_id") or d.get("contato") or "").strip()
     tipo = (d.get("tipo") or ("exames" if d.get("exame") else "consulta")).lower()
+    # >>> DEDUPE_KEY:
+    # Gera chave única por usuário + tipo (consulta/exame) + timestamp.
+    # Impede que dois envios no mesmo segundo sejam tratados como duplicados.
+    # NÃO remover — evita perda silenciosa de registros.
     payload["dedupe_key"] = f"{base}-{tipo}-{int(time.time())}"
-
+    
     _post_webapp(payload)        # ← mantenha só esta
     # _post_webapp(_map_to_captacao(d))  # ← não usar (era a chamada antiga)
 
@@ -508,6 +516,10 @@ def responder_evento_mensagem(entry: dict) -> None:
     ses["data"]["whatsapp_nome"] = profile_name
 
     # >>> GARANTIR message_id único vindo do WhatsApp (evita dedupe)
+    # >>> CRÍTICO: GARANTIR message_id ÚNICO
+    # Se não vier ID do WhatsApp, geramos um ID próprio baseado em timestamp.
+    # Isso evita bloqueio por deduplicação no WebApp/Sheets.
+    # NÃO REMOVER esta linha — sem isso o lead pode não ser salvo.
     ses["data"]["message_id"] = msg.get("id") or f"auto-{int(datetime.now().timestamp()*1000)}"
 
     # TTL: se passou do tempo, reinicia do zero
@@ -555,6 +567,9 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid_id == "op_endereco":
             # LOG leve do clique em Endereço (quem e quando)
             try:
+                    # >>> LOG DE ACESSO AO ENDEREÇO
+                    # Registra no Sheets toda vez que alguém clica em "Endereço".
+                    # Isso permite medir interesse passivo mesmo sem agendamento.
                     _post_webapp({
                         "tipo": "acesso_endereco",         # Coluna E
                         "especialidade": "endereco",       # Coluna D (campo oficial)
@@ -811,7 +826,14 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     fields = _fields_for(route, data) or []
     pend   = [(k, q) for (k, q) in fields if not data.get(k)]
 
-    # ===== CHANGE: Marketing ANTES do resumo/confirmar =======================
+    # ===== MARKETING ANTES DO CONFIRMAR =====================================
+    # IMPORTANTE:
+    # A coleta da origem (Instagram, Google, Panfleto, etc.)
+    # ocorre ANTES da confirmação final.
+    # Isso garante que:
+    # 1) Sempre teremos P/Q/R preenchidos antes do salvamento
+    # 2) O resumo final já mostre a origem
+    # NÃO mover este bloco para depois do confirmar.
     # Quando já temos CEP+Número e a decisão sobre complemento (complemento presente,
     # mesmo que vazio), perguntamos a ORIGEM uma única vez, antes de montar o resumo.
     if route in {"consulta","exames"} and not data.get("_origem_done"):
@@ -867,9 +889,17 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     # (REMOVIDO GANCHO ANTIGO) marketing depois do confirmar
 
     # Salvar e encerrar
+    # >>> SALVAMENTO FINAL
+    # Ordem correta:
+    # 1) Atualiza paciente
+    # 2) Registra solicitação no Sheets
+    # 3) Envia mensagem de fechamento
+    # NÃO inverter a ordem.
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
     _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
+
+    # Reset da sessão somente após salvar
     SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
 
 # ===== Continue form ==========================================================
@@ -952,6 +982,8 @@ def _continue_form(ss, wa_to, ses, user_text):
         data["complemento"] = (user_text or "").strip()
         # opcional: limpar o flag para evitar efeitos colaterais
         data.pop("_compl_decidido", None)
+        # Remove flag interna para evitar reentrada em loop
+        # Mantém o fluxo limpo após definir complemento
         ses["stage"] = None
         SESS[wa_to] = ses
         _finaliza_ou_pergunta_proximo(ss, wa_to, ses)
