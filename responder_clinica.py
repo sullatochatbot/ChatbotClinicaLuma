@@ -506,8 +506,22 @@ def _fields_for(route, d):
     if route=="consulta":         return _comuns_consulta(d)
     if route=="exames":           return _comuns_exames(d)
     if route=="editar_endereco":  return [("cep","Informe seu CEP:"),("numero","Informe o número:")]
-    if route=="retorno":          return [("cpf","Informe o CPF:"), ("nasc","Data de nascimento (dd/mm/aaaa):")]
-    if route=="resultado":        return [("cpf","Informe o CPF:"), ("nasc","Data de nascimento (dd/mm/aaaa):")]
+    if route=="retorno":
+
+        # ===== CAMPOS ANTIGOS DESATIVADOS TEMPORARIAMENTE =====
+        # return [("cpf","Informe o CPF:"), ("nasc","Data de nascimento (dd/mm/aaaa):")]
+
+        # >>> NOVO FLUXO SIMPLIFICADO
+        return [("nome","Informe o nome completo do paciente:")]
+    
+    if route=="resultado":
+
+        # ===== CAMPOS ANTIGOS DESATIVADOS TEMPORARIAMENTE =====
+        # return [("cpf","Informe o CPF:"), ("nasc","Data de nascimento (dd/mm/aaaa):")]
+
+        # >>> NOVO FLUXO SIMPLIFICADO
+        return [("nome","Informe o nome completo do paciente:")]
+    
     return None
 
 def _question_for(route: str, key: str, d: Dict[str, Any]) -> str:
@@ -579,12 +593,30 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid_id == "op_mais":
             SESS[wa_to] = {"route":"mais2","stage":"","data":{}}
             _send_buttons(wa_to, "Outras opções:", BTN_MAIS_2); return
+        
         if bid_id == "op_retorno":
-            SESS[wa_to] = {"route":"retorno","stage":"cpf","data":{"tipo":"retorno"}}
-            _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:"); return
+
+            # ===== CPF DESATIVADO =====
+            # SESS[wa_to] = {"route":"retorno","stage":"cpf","data":{"tipo":"retorno"}}
+            # _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
+
+            # >>> NOVO
+            SESS[wa_to] = {"route":"retorno","stage":"nome","data":{"tipo":"retorno"}}
+            _send_text(wa_to, "Para prosseguir, informe o nome completo do paciente:")
+            return
+
+        
         if bid_id == "op_resultado":
-            SESS[wa_to] = {"route":"resultado","stage":"cpf","data":{"tipo":"resultado"}}
-            _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:"); return
+
+            # ===== CPF DESATIVADO =====
+            # SESS[wa_to] = {"route":"resultado","stage":"cpf","data":{"tipo":"resultado"}}
+            # _send_text(wa_to, "Para prosseguir, informe o CPF do paciente:")
+
+            # >>> NOVO
+            SESS[wa_to] = {"route":"resultado","stage":"nome","data":{"tipo":"resultado"}}
+            _send_text(wa_to, "Para prosseguir, informe o nome completo do paciente:")
+            return
+        
         if bid_id == "op_mais3":
             SESS[wa_to] = {"route":"mais3","stage":"","data":{}}
             _send_buttons(wa_to, "Mais opções:", BTN_MAIS_3); return
