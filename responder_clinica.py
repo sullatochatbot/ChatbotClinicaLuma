@@ -550,44 +550,54 @@ def responder_evento_mensagem(entry: dict) -> None:
     mtype        = msg.get("type")
 
     # 🔎 verifica se já existia sessão antes
-    is_new_session = wa_to not in SESS
-
     # cria/recupera sessão
-    ses = SESS.setdefault(wa_to, {
-        "route": "root",
-        "stage": "",
-        "data": {},
-        "last_at": None
-    })
-
-    ses["data"]["contato"] = wa_to
-    ses["data"]["whatsapp_nome"] = profile_name
+    ses = SESS.get(wa_to)
 
     now = _now_sp()
-    last = ses.get("last_at")
 
-    session_expired = False
+    if not ses:
+        # nova sessão
+        ses = {
+            "route": "root",
+            "stage": "",
+            "data": {},
+            "last_at": now
+        }
+        SESS[wa_to] = ses
 
-    if last is not None:
-        diff = (now - last).total_seconds()
-        if diff > SESSION_TTL_MIN * 60:
-            session_expired = True
-
-    # 🔥 REGISTRA ACESSO
-    if is_new_session or session_expired:
         try:
             _post_webapp({
                 "tipo": "acesso_inicial",
                 "especialidade": "acesso_inicial",
                 "contato": wa_to,
                 "whatsapp_nome": profile_name,
-                "timestamp_local": _hora_sp()
+                "timestamp_local": _hora_sp(),
+                "message_id": f"acesso-{wa_to}-{int(time.time())}"
             })
         except Exception as e:
-            print("[ACESSO] erro:", e)
+            print("[ACESSO NOVO] erro:", e)
 
-    # Atualiza somente aqui
-    ses["last_at"] = now
+    else:
+        last = ses.get("last_at")
+
+        if last and (now - last).total_seconds() > SESSION_TTL_MIN * 60:
+            try:
+                _post_webapp({
+                    "tipo": "acesso_inicial",
+                    "especialidade": "acesso_inicial",
+                    "contato": wa_to,
+                    "whatsapp_nome": profile_name,
+                    "timestamp_local": _hora_sp(),
+                    "message_id": f"acesso-{wa_to}-{int(time.time())}"
+                })
+            except Exception as e:
+                print("[ACESSO EXPIRADO] erro:", e)
+
+        ses["last_at"] = now
+
+    # sempre atualizar dados base
+    ses["data"]["contato"] = wa_to
+    ses["data"]["whatsapp_nome"] = profile_name
 
     # >>> GARANTIR message_id único vindo do WhatsApp (evita dedupe)
     # >>> CRÍTICO: GARANTIR message_id ÚNICO
