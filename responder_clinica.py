@@ -990,9 +990,35 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     # NÃO inverter a ordem.
     _upsert_paciente(ss, data)
     _add_solicitacao(ss, data)
-    _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
 
-    # Reset da sessão somente após salvar
+    # ==========================================================
+    # ENVIO TEMPLATE AUTOMÁTICO DE CONFIRMAÇÃO
+    # ==========================================================
+    try:
+        nome_template = None
+
+        if route in {"consulta", "exames"}:
+            nome_template = "confirmacao_luma_img"
+
+        elif route == "resultado":
+            nome_template = "resultado_exame_luma_img"
+
+        if nome_template:
+            from webhook import enviar_template_clinica
+            enviar_template_clinica(
+                numero=wa_to,
+                nome=data.get("nome") or data.get("whatsapp_nome") or "Paciente",
+                template_name=nome_template,
+                imagem_url=os.getenv("CLINICA_IMAGEM_PADRAO", "")
+            )
+        else:
+            _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
+
+    except Exception as e:
+        print("[TEMPLATE AUTO] erro:", e)
+        _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
+
+    # Reset sessão
     SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
 
 # ===== Continue form ==========================================================

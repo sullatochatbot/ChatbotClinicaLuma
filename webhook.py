@@ -25,6 +25,69 @@ TZ_BR = timezone(timedelta(hours=-3))
 def hora_sp() -> str:
     return datetime.now(TZ_BR).strftime("%Y-%m-%d %H:%M:%S -03:00")
 
+# ============================================================
+# NORMALIZA DROPBOX
+# ============================================================
+def normalizar_dropbox(url):
+    if not url:
+        return ""
+    u = url.strip()
+    u = u.replace("https://www.dropbox.com", "https://dl.dropboxusercontent.com")
+    u = u.replace("?dl=0", "")
+    return u
+
+# ============================================================
+# ENVIO TEMPLATE CLÍNICA LUMA
+# ============================================================
+def enviar_template_clinica(numero, nome, template_name, imagem_url):
+
+    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+
+    imagem_final = normalizar_dropbox(imagem_url)
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": numero,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": "pt_BR"},
+            "components": [
+                {
+                    "type": "header",
+                    "parameters": [
+                        {
+                            "type": "image",
+                            "image": {"link": imagem_final}
+                        }
+                    ]
+                },
+                {
+                    "type": "body",
+                    "parameters": [
+                        {
+                            "type": "text",
+                            "text": nome
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
+        print(f"[{hora_sp()}] 📤 TEMPLATE:", r.status_code, r.text)
+        return r.status_code
+    except Exception as e:
+        print(f"[{hora_sp()}] ❌ Erro ao enviar template:", e)
+        return 500
+
 # === Anti-duplicação por message.id ===
 PROCESSED_MESSAGE_IDS = set()
 MAX_IDS = 500
@@ -63,9 +126,28 @@ def webhook():
     # === POST ===
     try:
         data = request.get_json(force=True, silent=True) or {}
-        print(f"[{hora_sp()}] === RECEBIDO DO META ===")
+        print(f"[{hora_sp()}] === RECEBIDO ===")
         print(json.dumps(data, indent=2, ensure_ascii=False))
 
+        # ============================================================
+        # DISPARO VIA APPS SCRIPT
+        # ============================================================
+        if data.get("origem") == "apps_script_disparo":
+
+            numero = data.get("numero")
+            nome = data.get("nome", "Paciente")
+            template_name = data.get("template")
+            imagem_url = data.get("imagem_url")
+
+            if numero and template_name and imagem_url:
+                enviar_template_clinica(numero, nome, template_name, imagem_url)
+                return "OK", 200
+            else:
+                return "ERRO DADOS DISPARO", 400
+
+        # ============================================================
+        # EVENTOS NORMAIS DO META
+        # ============================================================
         for entry in data.get("entry", []):
             changes = entry.get("changes", [])
             if not changes:
@@ -90,7 +172,6 @@ def webhook():
 
                 _mark_processed([mid])
 
-                # === ENVIA PARA O RESPONDER (sem registrar acesso aqui) ===
                 single_entry = {
                     "changes": [{
                         "value": {
@@ -103,17 +184,17 @@ def webhook():
                 try:
                     responder.responder_evento_mensagem(single_entry)
                 except Exception as e:
-                    print(f"[{hora_sp()}] ⚠️ Erro no responder_clinica: {e}")
+                    print(f"[{hora_sp()}] ⚠️ Erro no responder_clinica:", e)
 
     except Exception as e:
-        print(f"[{hora_sp()}] ❌ Erro no webhook: {e}")
+        print(f"[{hora_sp()}] ❌ Erro no webhook:", e)
 
     return "EVENT_RECEIVED", 200
 
 
 # === Envio manual opcional ===
 def send_text_message(phone_number, message):
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
