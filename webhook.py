@@ -1,10 +1,13 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import json, os, requests
 import responder_clinica as responder
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 
-# === Env ===
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
 load_dotenv()
 app = Flask(__name__)
 
@@ -13,21 +16,25 @@ ACCESS_TOKEN = os.getenv("WA_ACCESS_TOKEN") or os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("WA_PHONE_NUMBER_ID") or os.getenv("PHONE_NUMBER_ID")
 
 if not VERIFY_TOKEN:
-    print("⚠️ VERIFY_TOKEN não definido no ambiente (.env)")
+    print("⚠️ VERIFY_TOKEN não definido")
 if not ACCESS_TOKEN:
-    print("⚠️ WA_ACCESS_TOKEN/ACCESS_TOKEN não definido no ambiente (.env)")
+    print("⚠️ WA_ACCESS_TOKEN não definido")
 if not PHONE_NUMBER_ID:
-    print("⚠️ WA_PHONE_NUMBER_ID/PHONE_NUMBER_ID não definido no ambiente (.env)")
+    print("⚠️ WA_PHONE_NUMBER_ID não definido")
 
-# === Timezone SP (UTC-3) ===
+# ============================================================
+# TIMEZONE BRASIL
+# ============================================================
+
 TZ_BR = timezone(timedelta(hours=-3))
 
-def hora_sp() -> str:
+def hora_sp():
     return datetime.now(TZ_BR).strftime("%Y-%m-%d %H:%M:%S -03:00")
 
 # ============================================================
 # NORMALIZA DROPBOX
 # ============================================================
+
 def normalizar_dropbox(url):
     if not url:
         return ""
@@ -37,12 +44,38 @@ def normalizar_dropbox(url):
     return u
 
 # ============================================================
-# ENVIO TEMPLATE CLÍNICA LUMA
+# ROTAS BÁSICAS
 # ============================================================
+
+@app.route("/", methods=["GET"])
+def home():
+    return "CLINICA LUMA ONLINE", 200
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return {"status": "ok", "time": hora_sp()}, 200
+
+
+# 🔐 POLÍTICA DE PRIVACIDADE (OBRIGATÓRIA NO META)
+
+@app.route("/privacy", methods=["GET"])
+def privacy():
+    return """
+    <h2>Política de Privacidade - Clínica Luma</h2>
+    <p>A Clínica Luma utiliza o WhatsApp exclusivamente para comunicação com pacientes.</p>
+    <p>Não compartilhamos dados com terceiros.</p>
+    <p>Contato: sol@sullato.com.br</p>
+    """, 200
+
+
+# ============================================================
+# ENVIO TEMPLATE
+# ============================================================
+
 def enviar_template_clinica(numero, nome, template_name, imagem_url):
 
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
-
     imagem_final = normalizar_dropbox(imagem_url)
 
     payload = {
@@ -88,7 +121,11 @@ def enviar_template_clinica(numero, nome, template_name, imagem_url):
         print(f"[{hora_sp()}] ❌ Erro ao enviar template:", e)
         return 500
 
-# === Anti-duplicação por message.id ===
+
+# ============================================================
+# CONTROLE DE DUPLICIDADE
+# ============================================================
+
 PROCESSED_MESSAGE_IDS = set()
 MAX_IDS = 500
 
@@ -100,38 +137,31 @@ def _mark_processed(ids):
     if len(PROCESSED_MESSAGE_IDS) > MAX_IDS:
         PROCESSED_MESSAGE_IDS = set(list(PROCESSED_MESSAGE_IDS)[-MAX_IDS//2:])
 
-# === Healthcheck ===
-@app.route("/health", methods=["GET"])
-def health():
-    return {"status": "ok", "time": hora_sp()}, 200
 
-# === Webhook ===
+# ============================================================
+# WEBHOOK META
+# ============================================================
+
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
 
+    # VERIFICAÇÃO META
     if request.method == "GET":
         mode = request.args.get("hub.mode")
         token = request.args.get("hub.verify_token")
         challenge = request.args.get("hub.challenge")
 
-        print(f"[{hora_sp()}] 📥 Verificação recebida:", mode)
-
         if mode == "subscribe" and token == VERIFY_TOKEN:
             print(f"[{hora_sp()}] ✅ Webhook verificado")
             return challenge, 200
 
-        print(f"[{hora_sp()}] ❌ Token inválido:", token)
         return "Token inválido", 403
 
-    # === POST ===
+    # EVENTOS
     try:
         data = request.get_json(force=True, silent=True) or {}
-        print(f"[{hora_sp()}] === RECEBIDO ===")
-        print(json.dumps(data, indent=2, ensure_ascii=False))
 
-        # ============================================================
         # DISPARO VIA APPS SCRIPT
-        # ============================================================
         if data.get("origem") == "apps_script_disparo":
 
             numero = data.get("numero")
@@ -145,9 +175,7 @@ def webhook():
             else:
                 return "ERRO DADOS DISPARO", 400
 
-        # ============================================================
-        # EVENTOS NORMAIS DO META
-        # ============================================================
+        # EVENTOS NORMAIS
         for entry in data.get("entry", []):
             changes = entry.get("changes", [])
             if not changes:
@@ -167,7 +195,6 @@ def webhook():
                     continue
 
                 if mid in PROCESSED_MESSAGE_IDS:
-                    print(f"[{hora_sp()}] ↩️ Duplicado ignorado: {mid}")
                     continue
 
                 _mark_processed([mid])
@@ -184,7 +211,7 @@ def webhook():
                 try:
                     responder.responder_evento_mensagem(single_entry)
                 except Exception as e:
-                    print(f"[{hora_sp()}] ⚠️ Erro no responder_clinica:", e)
+                    print(f"[{hora_sp()}] ⚠️ Erro no responder:", e)
 
     except Exception as e:
         print(f"[{hora_sp()}] ❌ Erro no webhook:", e)
@@ -192,29 +219,10 @@ def webhook():
     return "EVENT_RECEIVED", 200
 
 
-# === Envio manual opcional ===
-def send_text_message(phone_number, message):
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": phone_number,
-        "type": "text",
-        "text": {"body": message}
-    }
-
-    print(f"[{hora_sp()}] 📤 Enviando manual...")
-
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        print(f"[{hora_sp()}] 📬 Status:", r.status_code, r.text)
-    except Exception as e:
-        print(f"[{hora_sp()}] ❌ Erro ao enviar:", e)
-
+# ============================================================
+# RUN
+# ============================================================
 
 if __name__ == "__main__":
-    print(f"[{hora_sp()}] 🚀 Flask em http://0.0.0.0:5000")
+    print(f"[{hora_sp()}] 🚀 Flask iniciado")
     app.run(host="0.0.0.0", port=5000)
