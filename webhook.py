@@ -57,15 +57,46 @@ def health():
     return {"status": "ok", "time": hora_sp()}, 200
 
 
-# 🔐 POLÍTICA DE PRIVACIDADE (OBRIGATÓRIA NO META)
+# ============================================================
+# 🔐 POLÍTICA DE PRIVACIDADE (META OBRIGATÓRIO)
+# ============================================================
 
 @app.route("/privacy", methods=["GET"])
 def privacy():
     return """
-    <h2>Política de Privacidade - Clínica Luma</h2>
+    <h1>Política de Privacidade - Clínica Luma</h1>
     <p>A Clínica Luma utiliza o WhatsApp exclusivamente para comunicação com pacientes.</p>
+    <p>As informações coletadas são utilizadas apenas para agendamento e atendimento.</p>
     <p>Não compartilhamos dados com terceiros.</p>
     <p>Contato: sol@sullato.com.br</p>
+    """, 200
+
+
+# ============================================================
+# 📜 TERMOS DE SERVIÇO (META OBRIGATÓRIO)
+# ============================================================
+
+@app.route("/terms", methods=["GET"])
+def terms():
+    return """
+    <h1>Termos de Serviço - Clínica Luma</h1>
+    <p>Este chatbot é utilizado exclusivamente para comunicação entre a Clínica Luma e seus pacientes.</p>
+    <p>O uso implica concordância com o recebimento de mensagens relacionadas a agendamentos e atendimentos.</p>
+    <p>Contato: sol@sullato.com.br</p>
+    """, 200
+
+
+# ============================================================
+# 🗑 EXCLUSÃO DE DADOS (META OBRIGATÓRIO)
+# ============================================================
+
+@app.route("/delete-data", methods=["GET"])
+def delete_data():
+    return """
+    <h1>Solicitação de Exclusão de Dados</h1>
+    <p>Para solicitar a exclusão de seus dados, envie um e-mail para:</p>
+    <p><strong>sol@sullato.com.br</strong></p>
+    <p>Assunto: EXCLUSÃO DE DADOS</p>
     """, 200
 
 
@@ -145,7 +176,7 @@ def _mark_processed(ids):
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
 
-    # VERIFICAÇÃO META
+    # 🔎 VERIFICAÇÃO META
     if request.method == "GET":
         mode = request.args.get("hub.mode")
         token = request.args.get("hub.verify_token")
@@ -157,11 +188,11 @@ def webhook():
 
         return "Token inválido", 403
 
-    # EVENTOS
+    # 📩 EVENTOS
     try:
         data = request.get_json(force=True, silent=True) or {}
 
-        # DISPARO VIA APPS SCRIPT
+        # 🔁 DISPARO VIA APPS SCRIPT
         if data.get("origem") == "apps_script_disparo":
 
             numero = data.get("numero")
@@ -175,7 +206,7 @@ def webhook():
             else:
                 return "ERRO DADOS DISPARO", 400
 
-        # EVENTOS NORMAIS
+        # 📲 EVENTOS NORMAIS WHATSAPP
         for entry in data.get("entry", []):
             changes = entry.get("changes", [])
             if not changes:
