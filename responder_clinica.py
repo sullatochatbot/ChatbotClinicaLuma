@@ -299,6 +299,34 @@ def _send_text(to: str, text: str):
     payload = {"messaging_product":"whatsapp","to":to,"type":"text","text":{"preview_url":False,"body":text[:4096]}}
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
 
+def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
+    btns = buttons[:3]  # WhatsApp permite no máximo 3 botões
+
+    if not (WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID):
+        print("[MOCK→WA BTNS]", to, body, btns)
+        return
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body[:1024]},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": b}
+                    for b in btns
+                ]
+            }
+        }
+    }
+
+    r = requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
+
+    print("📤 BUTTON STATUS:", r.status_code)
+    print("📤 BUTTON RESP:", r.text)
+
 # ===== TEMPLATE COM IMAGEM (HEADER) =========================================
 
 def _normalizar_dropbox(url: str) -> str:
