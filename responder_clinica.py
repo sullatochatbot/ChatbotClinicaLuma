@@ -1063,30 +1063,16 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     _add_solicitacao(ss, data)
 
     # ==========================================================
-    # ENVIO TEMPLATE AUTOMÁTICO DE CONFIRMAÇÃO
+    # ENCERRAMENTO OPERACIONAL PADRÃO (SEM TEMPLATE AUTOMÁTICO)
     # ==========================================================
+
     try:
-        nome_template = None
-
-        if route in {"consulta", "exames"}:
-            nome_template = "confirmacao_luma_img"
-
-        elif route == "resultado":
-            nome_template = "resultado_exame_luma_img"
-
-        if nome_template:
-            _send_template_image(
-                wa_to,
-                nome_template,
-                os.getenv("CLINICA_IMAGEM_PADRAO", ""),
-                [data.get("nome") or data.get("whatsapp_nome") or "Paciente"]
-            )
-        else:
-            _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
-
+        _send_text(
+            wa_to,
+            FECHAMENTO.get(route, "Solicitação registrada.")
+        )
     except Exception as e:
-        print("[TEMPLATE AUTO] erro:", e)
-        _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
+        print("[FINALIZAÇÃO] erro ao enviar mensagem final:", e)
 
     # Reset sessão
     SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
