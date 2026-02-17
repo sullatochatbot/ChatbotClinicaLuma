@@ -299,15 +299,58 @@ def _send_text(to: str, text: str):
     payload = {"messaging_product":"whatsapp","to":to,"type":"text","text":{"preview_url":False,"body":text[:4096]}}
     requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
 
-def _send_buttons(to: str, body: str, buttons: List[Dict[str,str]]):
-    btns = buttons[:3]  # WhatsApp: máx 3
+# ===== TEMPLATE COM IMAGEM (HEADER) =========================================
+
+def _normalizar_dropbox(url: str) -> str:
+    if not url:
+        return ""
+    u = url.strip()
+    u = u.replace("https://www.dropbox.com", "https://dl.dropboxusercontent.com")
+    u = u.replace("?dl=0", "")
+    return u
+
+
+def _send_template_image(to: str, template_name: str, image_url: str, body_params: List[str]):
     if not (WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID):
-        print("[MOCK→WA BTNS]", to, body, btns); return
+        print("[MOCK→WA TEMPLATE IMG]", to, template_name, image_url, body_params)
+        return
+
+    image_url = _normalizar_dropbox(image_url)
+
     payload = {
-        "messaging_product":"whatsapp","to":to,"type":"interactive",
-        "interactive":{"type":"button","body":{"text":body[:1024]},"action":{"buttons":[{"type":"reply","reply":b} for b in btns]}}
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": { "code": "pt_BR" },
+            "components": [
+                {
+                    "type": "header",
+                    "parameters": [
+                        {
+                            "type": "image",
+                            "image": {
+                                "link": image_url
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "body",
+                    "parameters": [
+                        { "type": "text", "text": str(p) } for p in body_params
+                    ]
+                }
+            ]
+        }
     }
-    requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
+
+    r = requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=30)
+
+    print("📤 TEMPLATE STATUS:", r.status_code)
+    print("📤 TEMPLATE RESP:", r.text)
+
 # ===== Botões/UI ==============================================================
 WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
 
@@ -1004,12 +1047,11 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
             nome_template = "resultado_exame_luma_img"
 
         if nome_template:
-            from webhook import enviar_template_clinica
-            enviar_template_clinica(
-                numero=wa_to,
-                nome=data.get("nome") or data.get("whatsapp_nome") or "Paciente",
-                template_name=nome_template,
-                imagem_url=os.getenv("CLINICA_IMAGEM_PADRAO", "")
+            _send_template_image(
+                wa_to,
+                nome_template,
+                os.getenv("CLINICA_IMAGEM_PADRAO", ""),
+                [data.get("nome") or data.get("whatsapp_nome") or "Paciente"]
             )
         else:
             _send_text(wa_to, FECHAMENTO.get(route, "Solicitação registrada."))
