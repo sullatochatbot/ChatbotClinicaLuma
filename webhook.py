@@ -218,10 +218,6 @@ def webhook():
 # RUN
 # ============================================================
 
-if __name__ == "__main__":
-    print(f"[{hora_sp()}] 🚀 Flask iniciado")
-    app.run(host="0.0.0.0", port=5000)
-
 @app.route("/teste_envio", methods=["GET"])
 def teste_envio():
     url = f"https://graph.facebook.com/v19.0/{WA_PHONE_NUMBER_ID}/messages"
@@ -243,3 +239,9 @@ def teste_envio():
     r = requests.post(url, json=payload, headers=headers)
 
     return r.text, r.status_code
+
+
+if __name__ == "__main__":
+    print(f"[{hora_sp()}] 🚀 Flask iniciado")
+    app.run(host="0.0.0.0", port=5000)
+
