@@ -234,49 +234,61 @@ def webhook():
 @app.route("/teste_template", methods=["GET"])
 def teste_template():
 
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+    numeros = [
+        "5511988780161",
+        "5511989536141"
+    ]
 
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": "5511988780161",
-        "type": "template",
-        "template": {
-            "name": "luma_img_v2",
-            "language": {"code": "pt_BR"},
-            "components": [
-                {
-                    "type": "header",
-                    "parameters": [
-                        {
-                            "type": "image",
-                            "image": {
-                                "link": "https://dl.dropboxusercontent.com/scl/fi/o7sd6nm3cpitkpbwi6h16/Post-4_01.jpg"
-                            }
-                        }
-                    ]
-                },
-                {
-                    "type": "body",
-                    "parameters": [
-                        {
-                            "type": "text",
-                            "text": "Anderson"
-                        }
-                    ]
-                }
-            ]
-        }
-    }
+    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
-    r = requests.post(url, json=payload, headers=headers)
+    resultados = []
 
-    return r.text, r.status_code
+    for numero in numeros:
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": numero,
+            "type": "template",
+            "template": {
+                "name": "luma_img_v2",
+                "language": {"code": "pt_BR"},
+                "components": [
+                    {
+                        "type": "header",
+                        "parameters": [
+                            {
+                                "type": "image",
+                                "image": {
+                                    "link": "https://dl.dropboxusercontent.com/scl/fi/o7sd6nm3cpitkpbwi6h16/Post-4_01.jpg"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {
+                                "type": "text",
+                                "text": "Teste Clínica Luma"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
 
+        r = requests.post(url, json=payload, headers=headers)
+        resultados.append({
+            "numero": numero,
+            "status": r.status_code,
+            "resposta": r.text
+        })
+
+    return {"resultados": resultados, "hora": hora_sp()}
 
 # ============================================================
 # RUN
