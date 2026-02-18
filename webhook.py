@@ -1,5 +1,5 @@
-from flask import Flask, request, jsonify
-import json, os, requests
+from flask import Flask, request
+import os, requests
 import responder_clinica as responder
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
@@ -14,13 +14,6 @@ app = Flask(__name__)
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 ACCESS_TOKEN = os.getenv("WA_ACCESS_TOKEN") or os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("WA_PHONE_NUMBER_ID") or os.getenv("PHONE_NUMBER_ID")
-
-if not VERIFY_TOKEN:
-    print("⚠️ VERIFY_TOKEN não definido")
-if not ACCESS_TOKEN:
-    print("⚠️ WA_ACCESS_TOKEN não definido")
-if not PHONE_NUMBER_ID:
-    print("⚠️ WA_PHONE_NUMBER_ID não definido")
 
 # ============================================================
 # TIMEZONE BRASIL
@@ -58,7 +51,7 @@ def health():
 
 
 # ============================================================
-# 🔐 POLÍTICA DE PRIVACIDADE (META OBRIGATÓRIO)
+# POLÍTICA / TERMOS / DELETE (META)
 # ============================================================
 
 @app.route("/privacy", methods=["GET"])
@@ -72,36 +65,24 @@ def privacy():
     """, 200
 
 
-# ============================================================
-# 📜 TERMOS DE SERVIÇO (META OBRIGATÓRIO)
-# ============================================================
-
 @app.route("/terms", methods=["GET"])
 def terms():
     return """
     <h1>Termos de Serviço - Clínica Luma</h1>
-    <p>Este chatbot é utilizado exclusivamente para comunicação entre a Clínica Luma e seus pacientes.</p>
-    <p>O uso implica concordância com o recebimento de mensagens relacionadas a agendamentos e atendimentos.</p>
-    <p>Contato: sol@sullato.com.br</p>
+    <p>Uso exclusivo para comunicação com pacientes.</p>
     """, 200
 
-
-# ============================================================
-# 🗑 EXCLUSÃO DE DADOS (META OBRIGATÓRIO)
-# ============================================================
 
 @app.route("/delete-data", methods=["GET"])
 def delete_data():
     return """
-    <h1>Solicitação de Exclusão de Dados</h1>
-    <p>Para solicitar a exclusão de seus dados, envie um e-mail para:</p>
-    <p><strong>sol@sullato.com.br</strong></p>
-    <p>Assunto: EXCLUSÃO DE DADOS</p>
+    <h1>Exclusão de Dados</h1>
+    <p>Envie solicitação para: sol@sullato.com.br</p>
     """, 200
 
 
 # ============================================================
-# ENVIO TEMPLATE
+# ENVIO TEMPLATE (DISPARO 30 DIAS)
 # ============================================================
 
 def enviar_template_clinica(numero, nome, template_name, imagem_url):
@@ -129,10 +110,7 @@ def enviar_template_clinica(numero, nome, template_name, imagem_url):
                 {
                     "type": "body",
                     "parameters": [
-                        {
-                            "type": "text",
-                            "text": nome
-                        }
+                        {"type": "text", "text": nome}
                     ]
                 }
             ]
@@ -144,17 +122,13 @@ def enviar_template_clinica(numero, nome, template_name, imagem_url):
         "Content-Type": "application/json"
     }
 
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        print(f"[{hora_sp()}] 📤 TEMPLATE:", r.status_code, r.text)
-        return r.status_code
-    except Exception as e:
-        print(f"[{hora_sp()}] ❌ Erro ao enviar template:", e)
-        return 500
+    r = requests.post(url, headers=headers, json=payload, timeout=30)
+    print(f"[{hora_sp()}] 📤 TEMPLATE:", r.status_code, r.text)
+    return r.status_code
 
 
 # ============================================================
-# CONTROLE DE DUPLICIDADE
+# CONTROLE DUPLICIDADE
 # ============================================================
 
 PROCESSED_MESSAGE_IDS = set()
@@ -165,18 +139,19 @@ def _mark_processed(ids):
     for _id in ids:
         if _id:
             PROCESSED_MESSAGE_IDS.add(_id)
+
     if len(PROCESSED_MESSAGE_IDS) > MAX_IDS:
         PROCESSED_MESSAGE_IDS = set(list(PROCESSED_MESSAGE_IDS)[-MAX_IDS//2:])
 
 
 # ============================================================
-# WEBHOOK META
+# WEBHOOK
 # ============================================================
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
 
-    # 🔎 VERIFICAÇÃO META
+    # ================= VERIFICAÇÃO META =================
     if request.method == "GET":
         mode = request.args.get("hub.mode")
         token = request.args.get("hub.verify_token")
@@ -188,11 +163,11 @@ def webhook():
 
         return "Token inválido", 403
 
-    # 📩 EVENTOS
+    # ================= EVENTOS =================
     try:
         data = request.get_json(force=True, silent=True) or {}
 
-        # 🔁 DISPARO VIA APPS SCRIPT
+        # ===== DISPARO VIA APPS SCRIPT =====
         if data.get("origem") == "apps_script_disparo":
 
             numero = data.get("numero")
@@ -206,30 +181,26 @@ def webhook():
             else:
                 return "ERRO DADOS DISPARO", 400
 
-        # 📲 EVENTOS NORMAIS WHATSAPP
+        # ===== EVENTOS NORMAIS WHATSAPP =====
         for entry in data.get("entry", []):
-            changes = entry.get("changes", [])
-            if not changes:
-                continue
+            for change in entry.get("changes", []):
 
-            value = changes[0].get("value", {})
-            contacts = value.get("contacts", [])
-            messages = value.get("messages", [])
+                value = change.get("value", {})
+                messages = value.get("messages")
+                contacts = value.get("contacts")
 
-            for msg in messages:
-
-                if msg.get("type") not in ("text", "interactive"):
+                if not messages or not contacts:
                     continue
 
-                mid = msg.get("id")
-                if not mid:
+                msg = messages[0]
+                message_id = msg.get("id")
+
+                if not message_id or message_id in PROCESSED_MESSAGE_IDS:
                     continue
 
-                if mid in PROCESSED_MESSAGE_IDS:
-                    continue
+                _mark_processed([message_id])
 
-                _mark_processed([mid])
-
+                # Envia payload completo para o responder
                 single_entry = {
                     "changes": [{
                         "value": {

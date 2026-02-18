@@ -337,7 +337,6 @@ def _normalizar_dropbox(url: str) -> str:
     u = u.replace("?dl=0", "")
     return u
 
-
 def _send_template_image(to: str, template_name: str, image_url: str, body_params: List[str]):
     if not (WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID):
         print("[MOCK→WA TEMPLATE IMG]", to, template_name, image_url, body_params)
@@ -378,6 +377,38 @@ def _send_template_image(to: str, template_name: str, image_url: str, body_param
 
     print("📤 TEMPLATE STATUS:", r.status_code)
     print("📤 TEMPLATE RESP:", r.text)
+
+# ============================================================
+# DISPARO TEMPLATE SIMPLES (IGUAL OFICINA)
+# ============================================================
+
+def enviar_template_clinica_disparo(numero):
+    url = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages"
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": numero,
+        "type": "template",
+        "template": {
+            "name": "teste_img_luma_v1",  # CONFIRME O NOME EXATO
+            "language": {
+                "code": "pt_BR"
+            }
+        }
+    }
+
+    headers = {
+        "Authorization": f"Bearer {WA_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+    print("📤 TEMPLATE CLINICA STATUS:", response.status_code)
+    print("📤 TEMPLATE CLINICA BODY:", response.text)
+
+    return response.text
 
 # ===== Botões/UI ==============================================================
 WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
