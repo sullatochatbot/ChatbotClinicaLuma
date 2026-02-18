@@ -85,7 +85,7 @@ def delete_data():
 # ENVIO TEMPLATE (DISPARO 30 DIAS)
 # ============================================================
 
-def enviar_template_clinica(numero, nome, template_name, imagem_url):
+def enviar_template_clinica(numero, template_name, imagem_url):
 
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
     imagem_final = normalizar_dropbox(imagem_url)
@@ -106,12 +106,6 @@ def enviar_template_clinica(numero, nome, template_name, imagem_url):
                             "image": {"link": imagem_final}
                         }
                     ]
-                },
-                {
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "text": nome}
-                    ]
                 }
             ]
         }
@@ -123,9 +117,8 @@ def enviar_template_clinica(numero, nome, template_name, imagem_url):
     }
 
     r = requests.post(url, headers=headers, json=payload, timeout=30)
-    print(f"[{hora_sp()}] 📤 TEMPLATE:", r.status_code, r.text)
+    print("📤 TEMPLATE:", r.status_code, r.text)
     return r.status_code
-
 
 # ============================================================
 # CONTROLE DUPLICIDADE
