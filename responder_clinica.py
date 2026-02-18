@@ -694,21 +694,25 @@ def responder_evento_mensagem(entry: dict) -> None:
         except Exception as e:
             print("[ACESSO DIA] erro:", e)
 
-# ==========================================================
-# ⚠ BLOCO TTL ANTIGO DESATIVADO
-# A lógica de expiração agora está no início do handler.
-# Manter comentado para evitar conflito de controle de sessão.
-# ==========================================================
-# try:
-#     now  = _now_sp()
-#     last = ses.get("last_at")
-#     if last and (now - last).total_seconds() > SESSION_TTL_MIN * 60:
-#         SESS[wa_to] = {"route":"root","stage":"","data":{}, "last_at": now}
-#         _send_buttons(wa_to, "Reiniciei seu atendimento para começarmos do zero 👇", BTN_ROOT)
-#         return
-#     ses["last_at"] = now
-# except Exception:
-#     ses["last_at"] = _now_sp()
+    # ==========================================================
+    # 🔥 BOTÃO DE TEMPLATE (EX: clique em "Olá")
+    # ==========================================================
+    if mtype == "button":
+        texto_btn = (msg.get("button", {}).get("text") or "").strip().lower()
+
+        print("🔘 BOTÃO TEMPLATE RECEBIDO:", texto_btn)
+
+        if texto_btn in {"olá", "ola"}:
+            # Reset total da sessão
+            SESS[wa_to] = {
+                "route": "root",
+                "stage": "",
+                "data": {},
+                "last_at": _now_sp()
+            }
+
+            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
+            return
 
     # ===== INTERACTIVE =======================================================
     if mtype == "interactive":
@@ -717,7 +721,8 @@ def responder_evento_mensagem(entry: dict) -> None:
         lr       = inter.get("list_reply") or {}
         bid_id   = (br.get("id") or lr.get("id") or "").strip()
         if not bid_id:
-            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT); return
+            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
+            return
 
         # Menu raiz
         if bid_id == "op_consulta":
