@@ -221,3 +221,25 @@ def webhook():
 if __name__ == "__main__":
     print(f"[{hora_sp()}] 🚀 Flask iniciado")
     app.run(host="0.0.0.0", port=5000)
+
+@app.route("/teste_envio", methods=["GET"])
+def teste_envio():
+    url = f"https://graph.facebook.com/v19.0/{WA_PHONE_NUMBER_ID}/messages"
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": "5511988780161",  # SEU NÚMERO
+        "type": "text",
+        "text": {
+            "body": "Teste simples sem template - Clínica Luma"
+        }
+    }
+
+    headers = {
+        "Authorization": f"Bearer {WA_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    r = requests.post(url, json=payload, headers=headers)
+
+    return r.text, r.status_code
