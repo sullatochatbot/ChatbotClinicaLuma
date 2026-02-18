@@ -15,6 +15,11 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 ACCESS_TOKEN = os.getenv("WA_ACCESS_TOKEN") or os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("WA_PHONE_NUMBER_ID") or os.getenv("PHONE_NUMBER_ID")
 
+if not ACCESS_TOKEN:
+    print("❌ ACCESS_TOKEN não definido")
+if not PHONE_NUMBER_ID:
+    print("❌ PHONE_NUMBER_ID não definido")
+
 # ============================================================
 # TIMEZONE BRASIL
 # ============================================================
@@ -25,15 +30,19 @@ def hora_sp():
     return datetime.now(TZ_BR).strftime("%Y-%m-%d %H:%M:%S -03:00")
 
 # ============================================================
-# NORMALIZA DROPBOX
+# NORMALIZA DROPBOX (ROBUSTO)
 # ============================================================
 
 def normalizar_dropbox(url):
     if not url:
         return ""
     u = url.strip()
-    u = u.replace("https://www.dropbox.com", "https://dl.dropboxusercontent.com")
-    u = u.replace("?dl=0", "")
+
+    if "dropbox.com" in u:
+        u = u.replace("www.dropbox.com", "dl.dropboxusercontent.com")
+        u = u.replace("?dl=0", "")
+        u = u.split("?")[0]
+
     return u
 
 # ============================================================
@@ -58,31 +67,24 @@ def health():
 def privacy():
     return """
     <h1>Política de Privacidade - Clínica Luma</h1>
-    <p>A Clínica Luma utiliza o WhatsApp exclusivamente para comunicação com pacientes.</p>
-    <p>As informações coletadas são utilizadas apenas para agendamento e atendimento.</p>
-    <p>Não compartilhamos dados com terceiros.</p>
+    <p>Utilizamos o WhatsApp exclusivamente para comunicação com pacientes.</p>
+    <p>Dados usados apenas para agendamento e atendimento.</p>
     <p>Contato: sol@sullato.com.br</p>
     """, 200
 
 
 @app.route("/terms", methods=["GET"])
 def terms():
-    return """
-    <h1>Termos de Serviço - Clínica Luma</h1>
-    <p>Uso exclusivo para comunicação com pacientes.</p>
-    """, 200
+    return "<h1>Termos de Serviço - Clínica Luma</h1>", 200
 
 
 @app.route("/delete-data", methods=["GET"])
 def delete_data():
-    return """
-    <h1>Exclusão de Dados</h1>
-    <p>Envie solicitação para: sol@sullato.com.br</p>
-    """, 200
+    return "<h1>Solicite exclusão via sol@sullato.com.br</h1>", 200
 
 
 # ============================================================
-# ENVIO TEMPLATE (DISPARO 30 DIAS)
+# ENVIO TEMPLATE
 # ============================================================
 
 def enviar_template_clinica(numero, template_name, imagem_url, body_params=None):
@@ -95,12 +97,10 @@ def enviar_template_clinica(numero, template_name, imagem_url, body_params=None)
     if imagem_final:
         components.append({
             "type": "header",
-            "parameters": [
-                {
-                    "type": "image",
-                    "image": {"link": imagem_final}
-                }
-            ]
+            "parameters": [{
+                "type": "image",
+                "image": {"link": imagem_final}
+            }]
         })
 
     if body_params:
@@ -128,9 +128,12 @@ def enviar_template_clinica(numero, template_name, imagem_url, body_params=None)
     }
 
     r = requests.post(url, headers=headers, json=payload, timeout=30)
-    print("📤 TEMPLATE:", r.status_code, r.text)
+
+    print(f"[{hora_sp()}] 📤 TEMPLATE STATUS:", r.status_code)
+    print(r.text)
 
     return r.status_code
+
 
 # ============================================================
 # CONTROLE DUPLICIDADE
@@ -176,7 +179,6 @@ def webhook():
         if data.get("origem") == "apps_script_disparo":
 
             numero = data.get("numero")
-            nome = data.get("nome", "Paciente")
             template_name = data.get("template")
             imagem_url = data.get("imagem_url")
 
@@ -186,7 +188,7 @@ def webhook():
             else:
                 return "ERRO DADOS DISPARO", 400
 
-        # ===== EVENTOS NORMAIS WHATSAPP =====
+        # ===== EVENTOS NORMAIS =====
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
 
@@ -205,7 +207,6 @@ def webhook():
 
                 _mark_processed([message_id])
 
-                # Envia payload completo para o responder
                 single_entry = {
                     "changes": [{
                         "value": {
@@ -227,56 +228,24 @@ def webhook():
 
 
 # ============================================================
-# RUN
+# TESTE TEMPLATE IMAGEM
 # ============================================================
 
 @app.route("/teste_template", methods=["GET"])
 def teste_template():
 
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+    return enviar_template_clinica(
+        numero="5511988780161",
+        template_name="teste_img_luma_v1",
+        imagem_url="https://dl.dropboxusercontent.com/scl/fi/o7sd6nm3cpitkpbwi6h16/Post-4_01.jpg",
+        body_params=["Anderson"]
+    ), 200
 
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": "5511988780161",
-        "type": "template",
-        "template": {
-            "name": "teste_img_luma_v1",
-            "language": {"code": "pt_BR"},
-            "components": [
-                {
-                    "type": "header",
-                    "parameters": [
-                        {
-                            "type": "image",
-                            "image": {
-                                "link": "https://dl.dropboxusercontent.com/scl/fi/o7sd6nm3cpitkpbwi6h16/Post-4_01.jpg"
-                            }
-                        }
-                    ]
-                },
-                {
-                    "type": "body",
-                    "parameters": [
-                        {
-                            "type": "text",
-                            "text": "Anderson"
-                        }
-                    ]
-                }
-            ]
-        }
-    }
 
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    r = requests.post(url, json=payload, headers=headers)
-
-    return r.text, r.status_code
+# ============================================================
+# RUN
+# ============================================================
 
 if __name__ == "__main__":
     print(f"[{hora_sp()}] 🚀 Flask iniciado")
     app.run(host="0.0.0.0", port=5000)
-
