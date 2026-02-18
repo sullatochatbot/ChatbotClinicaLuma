@@ -234,7 +234,7 @@ def webhook():
 @app.route("/teste_template", methods=["GET"])
 def teste_template():
 
-    numero = "5511988780161"  # coloque aqui o número que vai testar
+    numero = "5511988780161"
 
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
@@ -244,7 +244,7 @@ def teste_template():
         "type": "template",
         "template": {
             "name": "luma_img_clean",
-            "language": { "code": "pt_BR" },
+            "language": {"code": "pt_BR"},
             "components": [
                 {
                     "type": "header",
@@ -262,7 +262,7 @@ def teste_template():
     }
 
     headers = {
-        "Authorization": f"Bearer {WA_ACCESS_TOKEN}",
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
