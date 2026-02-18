@@ -558,6 +558,16 @@ def _normalize_panfleto(raw: str):
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
 ACESSOS_DIA: Dict[str, str] = {}
+
+# ============================================================
+# RESET DE SESSÃO (IGUAL OFICINA)
+# ============================================================
+def reset_sessao(numero: str):
+    if numero in SESS:
+        del SESS[numero]
+    if numero in ACESSOS_DIA:
+        del ACESSOS_DIA[numero]
+
 # ===== Campos dinâmicos / Fluxo ==============================================
 def _comuns_consulta(d):
     campos = [("forma","Convênio ou Particular?")]
@@ -875,10 +885,20 @@ def responder_evento_mensagem(entry: dict) -> None:
         low  = body.lower()
 
         # reset manual da conversa
-        if low in {"menu", "inicio", "início", "reiniciar", "start", "começar"}:
-            SESS[wa_to] = {"route":"root","stage":"","data":{}, "last_at": _now_sp()}
-            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
-            return
+        if low in {"menu", "inicio", "início", "reiniciar", "start", "começar",
+                    "ola", "olá", "oi", "bom dia", "boa tarde", "boa noite"}:
+
+                    reset_sessao(wa_to)
+
+                    SESS[wa_to] = {
+                        "route": "root",
+                        "stage": "",
+                        "data": {},
+                        "last_at": _now_sp()
+                    }
+
+                    _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
+                    return
 
         # decisões simples por texto (quando bot perguntou)
         ses_tmp = SESS.get(wa_to)
