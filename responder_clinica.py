@@ -48,7 +48,14 @@ def _post_webapp(payload: dict) -> dict:
         data["message_id"] = f"auto-{int(datetime.now().timestamp()*1000)}"
 
     # Normalização contato / whatsapp_nome
-    data["contato"] = data.get("contato") or data.get("fone") or data.get("telefone") or ""
+    data["contato"] = (
+        data.get("contato")
+        or data.get("fone")
+        or data.get("telefone")
+        or data.get("wa_id")   # ← NOVO fallback
+        or ""
+    )
+
     data["whatsapp_nome"] = (
         data.get("whatsapp_nome")
         or data.get("nome_whatsapp")
