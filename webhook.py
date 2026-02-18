@@ -236,7 +236,7 @@ def teste_template():
 
     numero = "5511988780161"  # coloque aqui o número que vai testar
 
-    url = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
     payload = {
         "messaging_product": "whatsapp",
