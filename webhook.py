@@ -234,13 +234,17 @@ def webhook():
 @app.route("/teste_template", methods=["GET"])
 def teste_template():
 
-    return enviar_template_clinica(
+    status = enviar_template_clinica(
         numero="5511988780161",
         template_name="teste_img_luma_v1",
         imagem_url="https://dl.dropboxusercontent.com/scl/fi/o7sd6nm3cpitkpbwi6h16/Post-4_01.jpg",
         body_params=["Anderson"]
-    ), 200
+    )
 
+    return {
+        "status_envio": status,
+        "time": hora_sp()
+    }, 200
 
 # ============================================================
 # RUN
