@@ -234,29 +234,53 @@ def webhook():
 @app.route("/teste_template", methods=["GET"])
 def teste_template():
 
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+    numero = "5511988780161"  # ou qualquer número válido
+
+    url = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages"
 
     payload = {
         "messaging_product": "whatsapp",
-        "to": "5511988780161",
+        "to": numero,
         "type": "template",
         "template": {
             "name": "luma_img_v2",
-            "language": {"code": "pt_BR"}
+            "language": { "code": "pt_BR" },
+            "components": [
+                {
+                    "type": "header",
+                    "parameters": [
+                        {
+                            "type": "image",
+                            "image": {
+                                "link": "https://dl.dropboxusercontent.com/scl/fi/o7sd6nm3cpitkpbwi6h16/Post-4_01.jpg"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "body",
+                    "parameters": [
+                        {
+                            "type": "text",
+                            "text": "Anderson"
+                        }
+                    ]
+                }
+            ]
         }
     }
 
     headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Authorization": f"Bearer {WA_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
-    r = requests.post(url, json=payload, headers=headers)
+    response = requests.post(url, json=payload, headers=headers)
 
-    print("STATUS:", r.status_code)
-    print("CORPO:", r.text)
-
-    return r.text, r.status_code
+    return {
+        "status": response.status_code,
+        "resposta": response.text
+    }
 
 
 # ============================================================
