@@ -220,11 +220,11 @@ def webhook():
 
 @app.route("/teste_envio", methods=["GET"])
 def teste_envio():
-    url = f"https://graph.facebook.com/v19.0/{WA_PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
     payload = {
         "messaging_product": "whatsapp",
-        "to": "5511988780161",  # SEU NÚMERO
+        "to": "5511988780161",
         "type": "text",
         "text": {
             "body": "Teste simples sem template - Clínica Luma"
@@ -232,7 +232,7 @@ def teste_envio():
     }
 
     headers = {
-        "Authorization": f"Bearer {WA_ACCESS_TOKEN}",
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
