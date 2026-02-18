@@ -85,10 +85,31 @@ def delete_data():
 # ENVIO TEMPLATE (DISPARO 30 DIAS)
 # ============================================================
 
-def enviar_template_clinica(numero, template_name, imagem_url):
+def enviar_template_clinica(numero, template_name, imagem_url, body_params=None):
 
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
     imagem_final = normalizar_dropbox(imagem_url)
+
+    components = []
+
+    if imagem_final:
+        components.append({
+            "type": "header",
+            "parameters": [
+                {
+                    "type": "image",
+                    "image": {"link": imagem_final}
+                }
+            ]
+        })
+
+    if body_params:
+        components.append({
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": str(p)} for p in body_params
+            ]
+        })
 
     payload = {
         "messaging_product": "whatsapp",
@@ -97,17 +118,7 @@ def enviar_template_clinica(numero, template_name, imagem_url):
         "template": {
             "name": template_name,
             "language": {"code": "pt_BR"},
-            "components": [
-                {
-                    "type": "header",
-                    "parameters": [
-                        {
-                            "type": "image",
-                            "image": {"link": imagem_final}
-                        }
-                    ]
-                }
-            ]
+            "components": components
         }
     }
 
@@ -118,6 +129,7 @@ def enviar_template_clinica(numero, template_name, imagem_url):
 
     r = requests.post(url, headers=headers, json=payload, timeout=30)
     print("📤 TEMPLATE:", r.status_code, r.text)
+
     return r.status_code
 
 # ============================================================
@@ -169,7 +181,7 @@ def webhook():
             imagem_url = data.get("imagem_url")
 
             if numero and template_name and imagem_url:
-                enviar_template_clinica(numero, nome, template_name, imagem_url)
+                enviar_template_clinica(numero, template_name, imagem_url)
                 return "OK", 200
             else:
                 return "ERRO DADOS DISPARO", 400
@@ -218,16 +230,40 @@ def webhook():
 # RUN
 # ============================================================
 
-@app.route("/teste_envio", methods=["GET"])
-def teste_envio():
+@app.route("/teste_template", methods=["GET"])
+def teste_template():
+
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
     payload = {
         "messaging_product": "whatsapp",
         "to": "5511988780161",
-        "type": "text",
-        "text": {
-            "body": "Teste simples sem template - Clínica Luma"
+        "type": "template",
+        "template": {
+            "name": "teste_img_luma_v1",
+            "language": {"code": "pt_BR"},
+            "components": [
+                {
+                    "type": "header",
+                    "parameters": [
+                        {
+                            "type": "image",
+                            "image": {
+                                "link": "https://dl.dropboxusercontent.com/scl/fi/o7sd6nm3cpitkpbwi6h16/Post-4_01.jpg"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "body",
+                    "parameters": [
+                        {
+                            "type": "text",
+                            "text": "Anderson"
+                        }
+                    ]
+                }
+            ]
         }
     }
 
@@ -239,7 +275,6 @@ def teste_envio():
     r = requests.post(url, json=payload, headers=headers)
 
     return r.text, r.status_code
-
 
 if __name__ == "__main__":
     print(f"[{hora_sp()}] 🚀 Flask iniciado")
