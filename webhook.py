@@ -234,7 +234,7 @@ def webhook():
 @app.route("/teste_template", methods=["GET"])
 def teste_template():
 
-    numero = "5511988780161"  # ou qualquer número válido
+    numero = "5511988780161"  # coloque aqui o número que vai testar
 
     url = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages"
 
@@ -243,7 +243,7 @@ def teste_template():
         "to": numero,
         "type": "template",
         "template": {
-            "name": "luma_img_v2",
+            "name": "luma_img_clean",
             "language": { "code": "pt_BR" },
             "components": [
                 {
@@ -254,15 +254,6 @@ def teste_template():
                             "image": {
                                 "link": "https://dl.dropboxusercontent.com/scl/fi/o7sd6nm3cpitkpbwi6h16/Post-4_01.jpg"
                             }
-                        }
-                    ]
-                },
-                {
-                    "type": "body",
-                    "parameters": [
-                        {
-                            "type": "text",
-                            "text": "Anderson"
                         }
                     ]
                 }
@@ -281,7 +272,6 @@ def teste_template():
         "status": response.status_code,
         "resposta": response.text
     }
-
 
 # ============================================================
 # RUN
