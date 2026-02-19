@@ -154,9 +154,10 @@ def webhook():
 
             MENSAGENS_PROCESSADAS.add(message_id)
 
-            numero = contacts[0].get("wa_id")
+            numero = msg.get("from") or contacts[0].get("wa_id")
 
-            if msg.get("from") != numero:
+            if not numero:
+                print("⚠️ Número não identificado")
                 continue
 
             nome = contacts[0].get("profile", {}).get("name", "Cliente")
