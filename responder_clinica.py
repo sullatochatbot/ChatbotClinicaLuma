@@ -686,6 +686,11 @@ def responder_evento_mensagem(entry: dict) -> None:
     else:
         ses["last_at"] = now
 
+    # 🔐 GARANTIR IDENTIFICAÇÃO DO CONTATO
+    ses["data"]["contato"] = wa_to
+    ses["data"]["wa_id"] = wa_to
+    ses["data"]["whatsapp_nome"] = profile_name
+
     # ===== REGISTRO DE ACESSO APENAS 1x POR DIA =====
     if ACESSOS_DIA.get(wa_to) != today:
         try:
