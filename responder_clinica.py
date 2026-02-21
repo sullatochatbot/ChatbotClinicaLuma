@@ -715,37 +715,18 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         print("🔘 BOTÃO TEMPLATE RECEBIDO:", texto_btn)
 
-        # Botão padrão já funcional
-        if texto_btn in {"olá", "ola"}:
+        # Todos os botões de template abrem o menu inicial
+        if texto_btn in {"olá", "ola", "agendar consulta", "falar com atendente"}:
             reset_sessao(wa_to)
+
             SESS[wa_to] = {
                 "route": "root",
                 "stage": "",
                 "data": {},
                 "last_at": _now_sp()
             }
+
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
-            return
-
-        # Novo botão: Agendar consulta
-        if texto_btn == "agendar consulta":
-            reset_sessao(wa_to)
-            SESS[wa_to] = {
-                "route": "consulta",
-                "stage": "forma",
-                "data": {"tipo": "consulta"},
-                "last_at": _now_sp()
-            }
-            _ask_forma(wa_to)
-            return
-
-        # Novo botão: Falar com atendente
-        if texto_btn == "falar com atendente":
-            reset_sessao(wa_to)
-            _send_text(
-                wa_to,
-                "👩‍⚕️ Perfeito! Vou encaminhar você para uma atendente agora. Aguarde um momento."
-            )
             return
 
     # ===== INTERACTIVE =======================================================
