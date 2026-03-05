@@ -203,27 +203,26 @@ def _upsert_paciente(ss, d): return
 def _add_solicitacao(ss, d):
     # chave simples: fone + item + forma + minuto
     chave = f"{(d.get('contato') or '').strip()}|" \
-            f"{(d.get('especialidade') or d.get('exame') or '').strip()}|" \
-            f"{(d.get('forma') or '').strip()}|" \
-            f"{_hora_sp()[:16]}"
+        f"{(d.get('especialidade') or d.get('exame') or '').strip()}|" \
+        f"{(d.get('forma') or '').strip()}"
 
     if chave in _ULTIMAS_CHAVES:
         print("[SHEETS] skip duplicate:", chave)
-        return
-    _ULTIMAS_CHAVES.add(chave)
+    else:
+        _ULTIMAS_CHAVES.add(chave)
 
     # >>> NOVO: dedupe consciente por fluxo (consulta vs exames)
     payload = _map_to_captacao(d)
+
+    # 🔧 GARANTE QUE EXAME OU ESPECIALIDADE SEJA ENVIADO
+    payload["especialidade"] = d.get("especialidade") or d.get("exame") or ""
+
     base = (d.get("wa_id") or d.get("contato") or "").strip()
     tipo = (d.get("tipo") or ("exames" if d.get("exame") else "consulta")).lower()
-    # >>> DEDUPE_KEY:
-    # Gera chave única por usuário + tipo (consulta/exame) + timestamp.
-    # Impede que dois envios no mesmo segundo sejam tratados como duplicados.
-    # NÃO remover — evita perda silenciosa de registros.
+
     payload["dedupe_key"] = f"{base}-{tipo}-{int(time.time())}"
-    
-    _post_webapp(payload)        # ← mantenha só esta
-    # _post_webapp(_map_to_captacao(d))  # ← não usar (era a chamada antiga)
+
+    _post_webapp(payload)
 
 def _add_pesquisa(ss, d):
     dd = dict(d)
