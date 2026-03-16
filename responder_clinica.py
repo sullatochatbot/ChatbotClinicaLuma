@@ -650,8 +650,19 @@ def _question_for(route: str, key: str, d: Dict[str, Any]) -> str:
     return "Por favor, informe o dado solicitado."
 
 FECHAMENTO = {
-    "consulta":"✅ Obrigado! Por favor, aguarde que uma atendente entrará em contato para confirmar a consulta.",
-    "exames":"✅ Perfeito! Por favor, aguarde que uma atendente entrará em contato com você para agendar o exame."
+    "consulta":"✅ Obrigado! Seu pedido de consulta foi recebido.\n\n"
+               "Uma atendente da Clínica Luma entrará em contato em breve para confirmar.\n\n"
+               "📲 O contato será feito pelo número:\n"
+               "(11) 97537-9655\n\n"
+               "Se preferir falar agora, clique no link abaixo:\n"
+               "https://wa.me/5511975379655",
+
+    "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
+             "Uma atendente da Clínica Luma entrará em contato em breve para realizar o agendamento.\n\n"
+             "📲 O contato será feito pelo número:\n"
+             "(11) 97537-9655\n\n"
+             "Se preferir falar agora, clique no link abaixo:\n"
+             "https://wa.me/5511975379655"
 }
 
 # ===== Handler principal ======================================================
@@ -800,7 +811,6 @@ def responder_evento_mensagem(entry: dict) -> None:
                 f"📷 *Instagram*: {LINK_INSTAGRAM}\n"
                 "📘 *Facebook*: Clinica Luma\n"
                 "☎️ *Telefone*: (11) 2043-9937\n"
-                "💬 *WhatsApp*: https://wa.me/5511968501810\n"
                 "💬 *WhatsApp*: https://wa.me/5511975379655\n"
                 "✉️ *E-mail*: luma.centromed@gmail.com\n"
             )
