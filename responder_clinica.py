@@ -276,6 +276,18 @@ def _hora_sp():
 def _now_sp():
     return datetime.now(ZoneInfo("America/Sao_Paulo"))
 
+# ============================================================
+# VERIFICA SE ESTAMOS NO HORÁRIO DE ATENDIMENTO
+# ============================================================
+def _em_horario_atendimento():
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+
+    # 0 = segunda | 6 = domingo
+    if agora.weekday() >= 5:  # sábado ou domingo
+        return False
+
+    return 9 <= agora.hour < 17
+
 _RE_CEP = re.compile(r"^\d{8}$")
 def _cep_ok(s): return bool(_RE_CEP.match(re.sub(r"\D","",s or "")))
 
@@ -649,19 +661,41 @@ def _question_for(route: str, key: str, d: Dict[str, Any]) -> str:
         if k == key: return q
     return "Por favor, informe o dado solicitado."
 
-FECHAMENTO = {
+FECHAMENTO_DENTRO = {
     "consulta":"✅ Obrigado! Seu pedido de consulta foi recebido.\n\n"
-               "Uma atendente da Clínica Luma entrará em contato em breve para confirmar.\n\n"
+               "Uma atendente da Clínica Luma entrará em contato para confirmar.\n\n"
                "📲 O contato será feito pelo número:\n"
                "(11) 97537-9655\n\n"
-               "Se preferir falar agora, clique no link abaixo:\n"
+               "⏰ Horário de atendimento:\n"
+               "Segunda a sexta-feira das 9h às 17h.\n\n"
+               "Se desejar, você também pode enviar uma mensagem diretamente neste número:\n"
                "https://wa.me/5511975379655",
 
     "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
-             "Uma atendente da Clínica Luma entrará em contato em breve para realizar o agendamento.\n\n"
+             "Uma atendente da Clínica Luma entrará em contato para realizar o agendamento.\n\n"
              "📲 O contato será feito pelo número:\n"
              "(11) 97537-9655\n\n"
-             "Se preferir falar agora, clique no link abaixo:\n"
+             "⏰ Horário de atendimento:\n"
+             "Segunda a sexta-feira das 9h às 17h.\n\n"
+             "Se desejar, você também pode enviar uma mensagem diretamente neste número:\n"
+             "https://wa.me/5511975379655"
+}
+
+FECHAMENTO_FORA = {
+    "consulta":"✅ Obrigado! Seu pedido de consulta foi recebido.\n\n"
+               "📩 Sua solicitação foi registrada com sucesso.\n\n"
+               "⏰ No momento estamos fora do horário de atendimento.\n"
+               "Nossa equipe atende de segunda a sexta-feira das 9h às 17h.\n\n"
+               "Assim que retornarmos, uma atendente entrará em contato com você.\n\n"
+               "Se desejar, você também pode enviar uma mensagem neste número:\n"
+               "https://wa.me/5511975379655",
+
+    "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
+             "📩 Sua solicitação foi registrada com sucesso.\n\n"
+             "⏰ No momento estamos fora do horário de atendimento.\n"
+             "Nossa equipe atende de segunda a sexta-feira das 9h às 17h.\n\n"
+             "Assim que retornarmos, uma atendente entrará em contato com você.\n\n"
+             "Se desejar, você também pode enviar uma mensagem neste número:\n"
              "https://wa.me/5511975379655"
 }
 
@@ -1147,10 +1181,14 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     # ==========================================================
 
     try:
-        _send_text(
-            wa_to,
-            FECHAMENTO.get(route, "Solicitação registrada.")
-        )
+
+        if _em_horario_atendimento():
+            msg_final = FECHAMENTO_DENTRO.get(route, "Solicitação registrada.")
+        else:
+            msg_final = FECHAMENTO_FORA.get(route, "Solicitação registrada.")
+
+        _send_text(wa_to, msg_final)
+
     except Exception as e:
         print("[FINALIZAÇÃO] erro ao enviar mensagem final:", e)
 
