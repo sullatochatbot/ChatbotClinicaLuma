@@ -472,9 +472,10 @@ MSG_SUGESTOES = ("💡 Ajude a Clínica Luma a melhorar! Diga quais *especialida
 ESPECIALIDADES_ORDER = [
     "Clínico Geral",
     "Dermatologia e Estética",
-    "Harmonização Facial",
+    "Dentista / Bucomaxilofacial",
     "Endocrinologia",
     "Fonoaudiologia",
+    "Harmonização Facial",
     "Medicina do Trabalho",
     "Nutrólogo / Med. Esportiva * Emagrecimento 30+",
     "Ortopedia",
