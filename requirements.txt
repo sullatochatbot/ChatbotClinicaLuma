@@ -17,3 +17,4 @@ google-api-python-client
 tzdata
 openai==1.13.3
 anthropic
+groq

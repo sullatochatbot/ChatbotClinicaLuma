@@ -183,6 +183,17 @@ def webhook():
             elif msg.get("type") == "button":
                 texto = msg.get("button", {}).get("text")
 
+            # ÁUDIO: transcreve via Groq Whisper
+            elif msg.get("type") == "audio":
+                try:
+                    from transcrever_audio import transcrever_audio
+                    media_id = (msg.get("audio") or {}).get("id", "")
+                    if media_id:
+                        texto = transcrever_audio(media_id, WA_ACCESS_TOKEN)
+                        print(f"🎙️ Áudio transcrito: {texto!r}")
+                except Exception as e:
+                    print("❌ Erro ao transcrever áudio:", e)
+
             if texto and len(texto.strip()) > 0:
 
                 print(f"👉 RECEBIDO: {texto}")
