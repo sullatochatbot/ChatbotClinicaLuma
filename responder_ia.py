@@ -1,23 +1,39 @@
 import os
-import openai
-from dotenv import load_dotenv
+from typing import Optional
 
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+def responder_com_ia(mensagem: str, nome: Optional[str] = None) -> Optional[str]:
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return None
 
-def responder_com_ia(pergunta):
     try:
-        resposta = openai.ChatCompletion.create(
-            model="gpt-4",  # ou "gpt-3.5-turbo" se preferir custo menor
-            messages=[
-                {"role": "system", "content": "Você é um atendente do Grupo Sullato, especializada em venda de veículos de passeio e utilitários. Seja sempre claro, simpático e direto ao ponto."},
-                {"role": "user", "content": pergunta}
-            ],
-            temperature=0.5,
-            max_tokens=300
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+
+        sistema = (
+            "Você é o assistente virtual da Clínica Luma, clínica médica em São Paulo. "
+            "Endereço: Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000. "
+            "Especialidades: Clínico Geral, Dermatologia, Dentista, Endocrinologia, Fonoaudiologia, "
+            "Harmonização Facial, Medicina do Trabalho, Nutrição/Medicina Esportiva, Ortopedia, Pediatria, Psiquiatria. "
+            "Exames: Admissional/Demissional, Laboratoriais, Eletrocardiograma, Raio X, Toxicológico. "
+            "Atendimento: convênio e particular. Horário: segunda a sexta das 9h às 17h. "
+            "Contato: (11) 2043-9937 | WhatsApp: https://wa.me/5511975379655. "
+            "Responda sempre em português brasileiro, com tom acolhedor e direto, em 1 a 3 frases. "
+            "Nunca marque consultas diretamente — oriente o paciente a usar o menu para agendar. "
+            "Quando fizer sentido, sugira que o paciente escolha uma opção no menu."
         )
-        texto = resposta.choices[0].message['content'].strip()
-        return texto
+
+        usuario = mensagem if not nome else f"[Paciente: {nome}]\n{mensagem}"
+
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            system=sistema,
+            messages=[{"role": "user", "content": usuario}],
+        )
+        texto = (resp.content[0].text or "").strip()
+        return texto if texto else None
+
     except Exception as e:
-        print("❌ Erro ao gerar resposta com IA:", e)
-        return "Desculpe, não consegui entender sua mensagem. Pode tentar reformular?"
+        print("⚠️ Claude indisponível:", e)
+        return None
