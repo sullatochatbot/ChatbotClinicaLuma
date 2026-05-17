@@ -8,6 +8,7 @@ def responder_com_ia(mensagem: str, nome: Optional[str] = None) -> Optional[str]
 
     try:
         import anthropic
+        print(f"✅ anthropic instalado: {anthropic.__version__}")
         client = anthropic.Anthropic(api_key=api_key)
 
         sistema = (

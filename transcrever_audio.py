@@ -31,6 +31,7 @@ def transcrever_audio(media_id: str, access_token: str) -> str:
             tmp_path = tmp.name
 
         from groq import Groq
+        import groq as _g; print(f"✅ groq instalado: {_g.__version__}")
         client = Groq(api_key=groq_key)
         with open(tmp_path, "rb") as audio_file:
             resultado = client.audio.transcriptions.create(

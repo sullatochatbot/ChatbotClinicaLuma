@@ -190,6 +190,10 @@ def webhook():
                     media_id = (msg.get("audio") or {}).get("id", "")
                     if media_id:
                         texto = transcrever_audio(media_id, WA_ACCESS_TOKEN)
+                        if texto:
+                            msg = dict(msg)
+                            msg["type"] = "text"
+                            msg["text"] = {"body": texto}
                         print(f"🎙️ Áudio transcrito: {texto!r}")
                 except Exception as e:
                     print("❌ Erro ao transcrever áudio:", e)
