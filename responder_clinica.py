@@ -430,12 +430,14 @@ def enviar_template_clinica_disparo(numero):
 
 # ===== Botões/UI ==============================================================
 LINK_DOCTORALIA = "https://www.doctoralia.com.br/clinicas/luma-clinica-da-familia"
+LINK_WHATSAPP   = "https://wa.me/5511975379655"
+LINK_MAPS       = "https://maps.google.com/?q=Rua+Utrecht,+129,+Vila+Rio+Branco,+São+Paulo,+SP,+03878-000"
 TEL_WHATSAPP    = "(11) 97537-9655"
 TEL_FIXO        = "(11) 2043-9937"
 
 _CANAIS = (
     f"📅 Online (Doctoralia): {LINK_DOCTORALIA}\n"
-    f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+    f"📱 WhatsApp: {LINK_WHATSAPP}\n"
     f"☎️ Fixo: {TEL_FIXO}"
 )
 
@@ -684,7 +686,7 @@ FECHAMENTO_DENTRO = {
                "⏰ Atendimento: segunda a sexta das 9h às 17h.\n\n"
                "📅 Prefere agendar agora pelo sistema online?\n"
                f"{LINK_DOCTORALIA}\n\n"
-               f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+               f"📱 WhatsApp: {LINK_WHATSAPP}\n"
                f"☎️ Fixo: {TEL_FIXO}",
 
     "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
@@ -692,7 +694,7 @@ FECHAMENTO_DENTRO = {
              "⏰ Atendimento: segunda a sexta das 9h às 17h.\n\n"
              "📅 Prefere agendar agora pelo sistema online?\n"
              f"{LINK_DOCTORALIA}\n\n"
-             f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+             f"📱 WhatsApp: {LINK_WHATSAPP}\n"
              f"☎️ Fixo: {TEL_FIXO}"
 }
 
@@ -703,7 +705,7 @@ FECHAMENTO_FORA = {
                "Nossa equipe atende de segunda a sexta das 9h às 17h.\n\n"
                "📅 Se preferir, agende agora pelo sistema online:\n"
                f"{LINK_DOCTORALIA}\n\n"
-               f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+               f"📱 WhatsApp: {LINK_WHATSAPP}\n"
                f"☎️ Fixo: {TEL_FIXO}",
 
     "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
@@ -712,7 +714,7 @@ FECHAMENTO_FORA = {
              "Nossa equipe atende de segunda a sexta das 9h às 17h.\n\n"
              "📅 Se preferir, agende agora pelo sistema online:\n"
              f"{LINK_DOCTORALIA}\n\n"
-             f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+             f"📱 WhatsApp: {LINK_WHATSAPP}\n"
              f"☎️ Fixo: {TEL_FIXO}"
 }
 
@@ -857,12 +859,13 @@ def responder_evento_mensagem(entry: dict) -> None:
 
             txt = (
                 "📍 *Endereço*\n"
-                "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n\n"
+                "Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – São Paulo/SP\n"
+                f"🗺️ Ver no Maps: {LINK_MAPS}\n\n"
                 f"🌐 *Site*: {LINK_SITE}\n"
                 f"📷 *Instagram*: {LINK_INSTAGRAM}\n"
                 "📘 *Facebook*: Clinica Luma\n"
                 f"☎️ *Fixo*: {TEL_FIXO}\n"
-                f"💬 *WhatsApp*: {TEL_WHATSAPP}\n"
+                f"💬 *WhatsApp*: {LINK_WHATSAPP}\n"
                 "✉️ *E-mail*: luma.centromed@gmail.com\n\n"
                 f"📅 *Agendamento online*: {LINK_DOCTORALIA}"
             )
