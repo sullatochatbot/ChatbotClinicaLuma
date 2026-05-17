@@ -194,6 +194,7 @@ def webhook():
                             msg = dict(msg)
                             msg["type"] = "text"
                             msg["text"] = {"body": texto}
+                            msg["_audio_transcricao"] = True
                         print(f"🎙️ Áudio transcrito: {texto!r}")
                 except Exception as e:
                     print("❌ Erro ao transcrever áudio:", e)

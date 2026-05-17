@@ -714,7 +714,6 @@ def responder_evento_mensagem(entry: dict) -> None:
     wa_to        = contacts[0].get("wa_id") or msg.get("from")
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
     mtype        = msg.get("type")
-    print(f"[DBG] responder_evento_mensagem: mtype={mtype!r} wa_to={wa_to!r}")
 
     # ===== cria/recupera sessão =====
     ses = SESS.get(wa_to)
@@ -948,8 +947,19 @@ def responder_evento_mensagem(entry: dict) -> None:
     if mtype == "text":
         body = (msg.get("text", {}).get("body") or "").strip()
         low  = body.lower()
-        _ses = SESS.get(wa_to) or {}
-        print(f"[DBG] text handler: route={_ses.get('route')!r} stage={_ses.get('stage')!r} body={body[:60]!r}")
+
+        # Áudio transcrito OU emoji puro: vai direto para IA, ignora etapa ativa
+        if msg.get("_audio_transcricao") or (body and not any(c.isalpha() or c.isdigit() for c in body)):
+            resposta_ia = None
+            try:
+                from responder_ia import responder_com_ia
+                resposta_ia = responder_com_ia(body, profile_name or None)
+            except Exception:
+                pass
+            if resposta_ia:
+                _send_text(wa_to, resposta_ia)
+            _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
+            return
 
         # reset manual da conversa
         if low in {"menu", "inicio", "início", "reiniciar", "start", "começar",
@@ -1082,7 +1092,6 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}; _ask_forma(wa_to); return
 
         # Fallback com IA conversacional antes de mostrar o menu
-        print("[DBG] IA fallback atingido")
         resposta_ia = None
         try:
             from responder_ia import responder_com_ia
