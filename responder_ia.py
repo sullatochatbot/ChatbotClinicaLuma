@@ -18,7 +18,7 @@ def responder_com_ia(mensagem: str, nome: Optional[str] = None) -> Optional[str]
             "Harmonização Facial, Medicina do Trabalho, Nutrição/Medicina Esportiva, Ortopedia, Pediatria, Psiquiatria. "
             "Exames: Admissional/Demissional, Laboratoriais, Eletrocardiograma, Raio X, Toxicológico. "
             "Atendimento: convênio e particular. Horário: segunda a sexta das 9h às 17h. "
-            "Contato: (11) 2043-9937 | WhatsApp: https://wa.me/5511975379655. "
+            "Contato: Fixo (11) 2043-9937 | WhatsApp (11) 97537-9655. "
             "Agendamento online (Doctoralia): https://www.doctoralia.com.br/clinicas/luma-clinica-da-familia. "
             "Responda sempre em português brasileiro, com tom acolhedor e direto, em 1 a 3 frases. "
             "Quando o paciente perguntar sobre agendamento, informe que pode usar o menu do WhatsApp ou agendar diretamente pelo Doctoralia. "

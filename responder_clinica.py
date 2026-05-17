@@ -430,16 +430,26 @@ def enviar_template_clinica_disparo(numero):
 
 # ===== Botões/UI ==============================================================
 LINK_DOCTORALIA = "https://www.doctoralia.com.br/clinicas/luma-clinica-da-familia"
+TEL_WHATSAPP    = "(11) 97537-9655"
+TEL_FIXO        = "(11) 2043-9937"
 
-WELCOME_GENERIC = (
-    f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar.\n\n"
-    f"📅 Agende também pelo nosso sistema online:\n{LINK_DOCTORALIA}"
+_CANAIS = (
+    f"📅 Online (Doctoralia): {LINK_DOCTORALIA}\n"
+    f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+    f"☎️ Fixo: {TEL_FIXO}"
 )
 
 def _welcome_named(name):
-    base = (f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}."
-            if name else f"Bem-vindo à {NOME_EMPRESA}!")
-    return base + f"\n\n📅 Agende também pelo nosso sistema online:\n{LINK_DOCTORALIA}"
+    saudacao = (f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}."
+                if name else f"Bem-vindo à {NOME_EMPRESA}!")
+    return (
+        f"{saudacao}\n\n"
+        f"Agende sua consulta por qualquer canal:\n"
+        f"{_CANAIS}\n\n"
+        f"Ou escolha uma opção abaixo 👇"
+    )
+
+WELCOME_GENERIC = _welcome_named("")
 
 BTN_ROOT = [{"id": "op_consulta", "title": "Consulta"},
             {"id": "op_exames",   "title": "Exames"},
@@ -670,48 +680,40 @@ def _question_for(route: str, key: str, d: Dict[str, Any]) -> str:
 
 FECHAMENTO_DENTRO = {
     "consulta":"✅ Obrigado! Seu pedido de consulta foi recebido.\n\n"
-               "Uma atendente da Clínica Luma entrará em contato para confirmar.\n\n"
-               "📲 O contato será feito pelo número:\n"
-               "(11) 97537-9655\n\n"
-               "⏰ Horário de atendimento:\n"
-               "Segunda a sexta-feira das 9h às 17h.\n\n"
+               "Uma atendente entrará em contato para confirmar.\n\n"
+               "⏰ Atendimento: segunda a sexta das 9h às 17h.\n\n"
                "📅 Prefere agendar agora pelo sistema online?\n"
                f"{LINK_DOCTORALIA}\n\n"
-               "Ou envie uma mensagem diretamente no WhatsApp:\n"
-               "https://wa.me/5511975379655",
+               f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+               f"☎️ Fixo: {TEL_FIXO}",
 
     "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
-             "Uma atendente da Clínica Luma entrará em contato para realizar o agendamento.\n\n"
-             "📲 O contato será feito pelo número:\n"
-             "(11) 97537-9655\n\n"
-             "⏰ Horário de atendimento:\n"
-             "Segunda a sexta-feira das 9h às 17h.\n\n"
+             "Uma atendente entrará em contato para realizar o agendamento.\n\n"
+             "⏰ Atendimento: segunda a sexta das 9h às 17h.\n\n"
              "📅 Prefere agendar agora pelo sistema online?\n"
              f"{LINK_DOCTORALIA}\n\n"
-             "Ou envie uma mensagem diretamente no WhatsApp:\n"
-             "https://wa.me/5511975379655"
+             f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+             f"☎️ Fixo: {TEL_FIXO}"
 }
 
 FECHAMENTO_FORA = {
     "consulta":"✅ Obrigado! Seu pedido de consulta foi recebido.\n\n"
-               "📩 Sua solicitação foi registrada com sucesso.\n\n"
-               "⏰ No momento estamos fora do horário de atendimento.\n"
-               "Nossa equipe atende de segunda a sexta-feira das 9h às 17h.\n\n"
-               "Assim que retornarmos, uma atendente entrará em contato com você.\n\n"
+               "📩 Solicitação registrada com sucesso.\n\n"
+               "⏰ Estamos fora do horário agora.\n"
+               "Nossa equipe atende de segunda a sexta das 9h às 17h.\n\n"
                "📅 Se preferir, agende agora pelo sistema online:\n"
                f"{LINK_DOCTORALIA}\n\n"
-               "Ou envie uma mensagem no WhatsApp:\n"
-               "https://wa.me/5511975379655",
+               f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+               f"☎️ Fixo: {TEL_FIXO}",
 
     "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
-             "📩 Sua solicitação foi registrada com sucesso.\n\n"
-             "⏰ No momento estamos fora do horário de atendimento.\n"
-             "Nossa equipe atende de segunda a sexta-feira das 9h às 17h.\n\n"
-             "Assim que retornarmos, uma atendente entrará em contato com você.\n\n"
+             "📩 Solicitação registrada com sucesso.\n\n"
+             "⏰ Estamos fora do horário agora.\n"
+             "Nossa equipe atende de segunda a sexta das 9h às 17h.\n\n"
              "📅 Se preferir, agende agora pelo sistema online:\n"
              f"{LINK_DOCTORALIA}\n\n"
-             "Ou envie uma mensagem no WhatsApp:\n"
-             "https://wa.me/5511975379655"
+             f"📱 WhatsApp: {TEL_WHATSAPP}\n"
+             f"☎️ Fixo: {TEL_FIXO}"
 }
 
 # ===== Handler principal ======================================================
@@ -859,9 +861,10 @@ def responder_evento_mensagem(entry: dict) -> None:
                 f"🌐 *Site*: {LINK_SITE}\n"
                 f"📷 *Instagram*: {LINK_INSTAGRAM}\n"
                 "📘 *Facebook*: Clinica Luma\n"
-                "☎️ *Telefone*: (11) 2043-9937\n"
-                "💬 *WhatsApp*: https://wa.me/5511975379655\n"
-                "✉️ *E-mail*: luma.centromed@gmail.com\n"
+                f"☎️ *Fixo*: {TEL_FIXO}\n"
+                f"💬 *WhatsApp*: {TEL_WHATSAPP}\n"
+                "✉️ *E-mail*: luma.centromed@gmail.com\n\n"
+                f"📅 *Agendamento online*: {LINK_DOCTORALIA}"
             )
             _send_text(wa_to, txt)
             _send_buttons(wa_to, "Posso ajudar em algo mais?", BTN_ROOT); return
