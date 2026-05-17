@@ -23,10 +23,12 @@ def responder_com_ia(mensagem: str, nome: Optional[str] = None) -> Optional[str]
             "Site: https://www.lumaclinicadafamilia.com.br. "
             "Instagram: https://www.instagram.com/luma_clinicamedica. "
             "Agendamento online (Doctoralia): https://www.doctoralia.com.br/clinicas/luma-clinica-da-familia. "
-            "Responda sempre em português brasileiro, com tom acolhedor e direto, em 1 a 3 frases. "
-            "Sempre que mencionar WhatsApp, site, Instagram, endereço ou Doctoralia, inclua o link completo. "
-            "Quando perguntarem sobre agendamento, informe que pode usar o menu, o Doctoralia ou o WhatsApp (com os links). "
-            "Nunca marque consultas diretamente. "
+            "Responda sempre em português brasileiro, com tom acolhedor e objetivo. "
+            "Para perguntas simples (especialidade, horário, convênio etc.) responda em 1 a 2 frases. "
+            "Quando o paciente perguntar sobre endereço, como chegar, contato ou redes sociais, "
+            "responda com UMA mensagem única e organizada contendo todas as informações relevantes com os links. "
+            "Nunca divida essas informações em várias respostas separadas. "
+            "Nunca marque consultas diretamente — oriente a usar o menu, o Doctoralia ou o WhatsApp. "
             "Quando fizer sentido, sugira que o paciente escolha uma opção no menu."
         )
 
