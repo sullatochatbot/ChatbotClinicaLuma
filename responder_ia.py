@@ -28,6 +28,8 @@ def responder_com_ia(mensagem: str, nome: Optional[str] = None) -> Optional[str]
             "Quando o paciente perguntar sobre endereço, como chegar, contato ou redes sociais, "
             "responda com UMA mensagem única e organizada contendo todas as informações relevantes com os links. "
             "Nunca divida essas informações em várias respostas separadas. "
+            "Ao mencionar o Instagram, sempre inclua o link: https://www.instagram.com/luma_clinicamedica. "
+            "Ao mencionar o site, sempre inclua o link: https://www.lumaclinicadafamilia.com.br. "
             "Nunca marque consultas diretamente — oriente a usar o menu, o Doctoralia ou o WhatsApp. "
             "Quando fizer sentido, sugira que o paciente escolha uma opção no menu."
         )
