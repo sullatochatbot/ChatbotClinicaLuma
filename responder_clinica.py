@@ -429,11 +429,17 @@ def enviar_template_clinica_disparo(numero):
     return response.text
 
 # ===== Botões/UI ==============================================================
-WELCOME_GENERIC = f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar."
+LINK_DOCTORALIA = "https://www.doctoralia.com.br/clinicas/luma-clinica-da-familia"
+
+WELCOME_GENERIC = (
+    f"Bem-vindo à {NOME_EMPRESA}! Escolha uma opção abaixo para começar.\n\n"
+    f"📅 Agende também pelo nosso sistema online:\n{LINK_DOCTORALIA}"
+)
 
 def _welcome_named(name):
-    return (f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}."
-            if name else WELCOME_GENERIC)
+    base = (f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}."
+            if name else f"Bem-vindo à {NOME_EMPRESA}!")
+    return base + f"\n\n📅 Agende também pelo nosso sistema online:\n{LINK_DOCTORALIA}"
 
 BTN_ROOT = [{"id": "op_consulta", "title": "Consulta"},
             {"id": "op_exames",   "title": "Exames"},
@@ -669,7 +675,9 @@ FECHAMENTO_DENTRO = {
                "(11) 97537-9655\n\n"
                "⏰ Horário de atendimento:\n"
                "Segunda a sexta-feira das 9h às 17h.\n\n"
-               "Se desejar, você também pode enviar uma mensagem diretamente neste número:\n"
+               "📅 Prefere agendar agora pelo sistema online?\n"
+               f"{LINK_DOCTORALIA}\n\n"
+               "Ou envie uma mensagem diretamente no WhatsApp:\n"
                "https://wa.me/5511975379655",
 
     "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
@@ -678,7 +686,9 @@ FECHAMENTO_DENTRO = {
              "(11) 97537-9655\n\n"
              "⏰ Horário de atendimento:\n"
              "Segunda a sexta-feira das 9h às 17h.\n\n"
-             "Se desejar, você também pode enviar uma mensagem diretamente neste número:\n"
+             "📅 Prefere agendar agora pelo sistema online?\n"
+             f"{LINK_DOCTORALIA}\n\n"
+             "Ou envie uma mensagem diretamente no WhatsApp:\n"
              "https://wa.me/5511975379655"
 }
 
@@ -688,7 +698,9 @@ FECHAMENTO_FORA = {
                "⏰ No momento estamos fora do horário de atendimento.\n"
                "Nossa equipe atende de segunda a sexta-feira das 9h às 17h.\n\n"
                "Assim que retornarmos, uma atendente entrará em contato com você.\n\n"
-               "Se desejar, você também pode enviar uma mensagem neste número:\n"
+               "📅 Se preferir, agende agora pelo sistema online:\n"
+               f"{LINK_DOCTORALIA}\n\n"
+               "Ou envie uma mensagem no WhatsApp:\n"
                "https://wa.me/5511975379655",
 
     "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
@@ -696,7 +708,9 @@ FECHAMENTO_FORA = {
              "⏰ No momento estamos fora do horário de atendimento.\n"
              "Nossa equipe atende de segunda a sexta-feira das 9h às 17h.\n\n"
              "Assim que retornarmos, uma atendente entrará em contato com você.\n\n"
-             "Se desejar, você também pode enviar uma mensagem neste número:\n"
+             "📅 Se preferir, agende agora pelo sistema online:\n"
+             f"{LINK_DOCTORALIA}\n\n"
+             "Ou envie uma mensagem no WhatsApp:\n"
              "https://wa.me/5511975379655"
 }
 

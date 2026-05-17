@@ -19,8 +19,10 @@ def responder_com_ia(mensagem: str, nome: Optional[str] = None) -> Optional[str]
             "Exames: Admissional/Demissional, Laboratoriais, Eletrocardiograma, Raio X, Toxicológico. "
             "Atendimento: convênio e particular. Horário: segunda a sexta das 9h às 17h. "
             "Contato: (11) 2043-9937 | WhatsApp: https://wa.me/5511975379655. "
+            "Agendamento online (Doctoralia): https://www.doctoralia.com.br/clinicas/luma-clinica-da-familia. "
             "Responda sempre em português brasileiro, com tom acolhedor e direto, em 1 a 3 frases. "
-            "Nunca marque consultas diretamente — oriente o paciente a usar o menu para agendar. "
+            "Quando o paciente perguntar sobre agendamento, informe que pode usar o menu do WhatsApp ou agendar diretamente pelo Doctoralia. "
+            "Nunca marque consultas diretamente. "
             "Quando fizer sentido, sugira que o paciente escolha uma opção no menu."
         )
 
