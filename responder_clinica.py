@@ -1078,6 +1078,15 @@ def responder_evento_mensagem(entry: dict) -> None:
         if "exame" in low:
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}; _ask_forma(wa_to); return
 
+        # Fallback com IA conversacional antes de mostrar o menu
+        resposta_ia = None
+        try:
+            from responder_ia import responder_com_ia
+            resposta_ia = responder_com_ia(body, profile_name or None)
+        except Exception:
+            pass
+        if resposta_ia:
+            _send_text(wa_to, resposta_ia)
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT); return
 # ===== Decidir próximo passo / salvar ========================================
 def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
