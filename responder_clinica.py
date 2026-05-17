@@ -950,6 +950,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # Áudio transcrito OU emoji puro: vai direto para IA, ignora etapa ativa
         if msg.get("_audio_transcricao") or (body and not any(c.isalpha() or c.isdigit() for c in body)):
+            SESS[wa_to] = {"route": "root", "stage": "", "data": {}, "last_at": now}
             resposta_ia = None
             try:
                 from responder_ia import responder_com_ia
@@ -1328,8 +1329,20 @@ def _continue_form(ss, wa_to, ses, user_text):
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
             _send_text(wa_to, f"O número {idx} não está na lista. Tente novamente.")
             _send_text(wa_to, _especialidade_menu_texto()); return
-        _send_text(wa_to, "Não entendi. Digite apenas o número da especialidade.")
-        _send_text(wa_to, _especialidade_menu_texto()); return
+        # Texto livre no lugar de número: tenta IA antes de pedir o número de novo
+        resposta_ia = None
+        try:
+            from responder_ia import responder_com_ia
+            nome_ses = data.get("whatsapp_nome") or None
+            resposta_ia = responder_com_ia(txt, nome_ses)
+        except Exception:
+            pass
+        if resposta_ia:
+            _send_text(wa_to, resposta_ia)
+        else:
+            _send_text(wa_to, "Não entendi. Digite apenas o número da especialidade.")
+            _send_text(wa_to, _especialidade_menu_texto())
+        return
 
     # Pesquisa (se usar)
     if route == "pesquisa":
