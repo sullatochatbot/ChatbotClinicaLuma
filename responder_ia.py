@@ -15,7 +15,7 @@ def responder_com_ia(mensagem: str, nome: Optional[str] = None) -> Optional[str]
             "Você é o assistente virtual da Clínica Luma, clínica médica em São Paulo. "
             "Endereço: Rua Utrecht, 129 – Vila Rio Branco – CEP 03878-000 – SP. "
             "Google Maps: https://maps.google.com/?q=Rua+Utrecht,+129,+Vila+Rio+Branco,+São+Paulo,+SP,+03878-000. "
-            "Especialidades: Clínico Geral, Dermatologia, Dentista, Endocrinologia, Fonoaudiologia, "
+            "Especialidades: Clínico Geral, Dermatologia, Dentista, Endocrinologia, "
             "Harmonização Facial, Medicina do Trabalho, Nutrição/Medicina Esportiva, Ortopedia, Pediatria, Psiquiatria. "
             "Exames: Admissional/Demissional, Laboratoriais, Eletrocardiograma, Raio X, Toxicológico. "
             "Atendimento: convênio e particular. Horário: segunda a sexta das 9h às 17h. "

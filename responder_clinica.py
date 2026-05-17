@@ -492,7 +492,6 @@ ESPECIALIDADES_ORDER = [
     "Dermatologia e Estética",
     "Dentista / Bucomaxilofacial",
     "Endocrinologia",
-    "Fonoaudiologia",
     "Harmonização Facial",
     "Medicina do Trabalho",
     "Nutrólogo / Med. Esportiva * Emagrecimento 30+",
