@@ -593,7 +593,9 @@ def _normalize_panfleto(raw: str):
 
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
-ACESSOS_DIA: Dict[str, str] = {}
+
+# Controle inteligente de acessos recentes
+ULTIMO_ACESSO: Dict[str, float] = {}
 
 # ============================================================
 # RESET DE SESSÃO (IGUAL OFICINA)
@@ -601,8 +603,9 @@ ACESSOS_DIA: Dict[str, str] = {}
 def reset_sessao(numero: str):
     if numero in SESS:
         del SESS[numero]
-    if numero in ACESSOS_DIA:
-        del ACESSOS_DIA[numero]
+
+    if numero in ULTIMO_ACESSO:
+        del ULTIMO_ACESSO[numero]
 
 # ===== Campos dinâmicos / Fluxo ==============================================
 def _comuns_consulta(d):
@@ -753,20 +756,29 @@ def responder_evento_mensagem(entry: dict) -> None:
     ses["data"]["wa_id"] = wa_to
     ses["data"]["whatsapp_nome"] = profile_name
 
-    # ===== REGISTRO DE ACESSO APENAS 1x POR DIA =====
-    if ACESSOS_DIA.get(wa_to) != today:
+    # ===== REGISTRO DE ACESSO INTELIGENTE =====
+
+    agora_ts = time.time()
+    ultimo_acesso = ULTIMO_ACESSO.get(wa_to, 0)
+
+    # Evita registrar múltiplos acessos em sequência rápida
+    if agora_ts - ultimo_acesso > 1800:  # 30 minutos
+
         try:
+
             _post_webapp({
                 "tipo": "acesso_inicial",
                 "especialidade": "acesso_inicial",
                 "contato": wa_to,
                 "whatsapp_nome": profile_name,
                 "timestamp_local": _hora_sp(),
-                "message_id": f"acesso-dia-{wa_to}-{today}"
+                "message_id": f"acesso-{wa_to}-{int(agora_ts)}"
             })
-            ACESSOS_DIA[wa_to] = today
+
+            ULTIMO_ACESSO[wa_to] = agora_ts
+
         except Exception as e:
-            print("[ACESSO DIA] erro:", e)
+            print("[ACESSO] erro:", e)
 
     # ==========================================================
     # 🔥 BOTÃO DE TEMPLATE (EX: clique em "Olá")
