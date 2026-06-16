@@ -199,6 +199,16 @@ def webhook():
                 except Exception as e:
                     print("❌ Erro ao transcrever áudio:", e)
 
+            # IMAGEM — resposta direta
+            elif msg.get("type") == "image":
+                responder._send_text(
+                    numero,
+                    "Recebemos sua imagem! 📸\n\n"
+                    "Infelizmente não consigo visualizar fotos por aqui.\n\n"
+                    "Pode descrever em texto o que você precisa? Será um prazer ajudar! 😊"
+                )
+                continue
+
             if texto and len(texto.strip()) > 0:
 
                 print(f"👉 RECEBIDO: {texto}")
