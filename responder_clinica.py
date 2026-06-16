@@ -591,6 +591,23 @@ def _normalize_panfleto(raw: str):
         return f"P={dig}", raw
     return "", raw
 
+# ===== Histórico de conversa para IA =========================================
+_HIST_IA: dict = {}
+_HIST_TTL = 3600
+
+def _get_hist_ia(wa_to):
+    h = _HIST_IA.get(wa_to, {})
+    if time.time() - h.get("ts", 0) > _HIST_TTL:
+        return []
+    return list(h.get("msgs", []))
+
+def _add_hist_ia(wa_to, user_msg, assistant_msg):
+    h = _HIST_IA.get(wa_to, {})
+    msgs = list(h.get("msgs", []))
+    msgs.append({"role": "user", "content": user_msg})
+    msgs.append({"role": "assistant", "content": assistant_msg})
+    _HIST_IA[wa_to] = {"msgs": msgs[-10:], "ts": time.time()}
+
 # ===== Sessão ================================================================
 SESS: Dict[str, Dict[str, Any]] = {}
 
@@ -985,10 +1002,12 @@ def responder_evento_mensagem(entry: dict) -> None:
             resposta_ia = None
             try:
                 from responder_ia import responder_com_ia
-                resposta_ia = responder_com_ia(body, profile_name or None)
+                hist = _get_hist_ia(wa_to)
+                resposta_ia = responder_com_ia(body, profile_name or None, historico=hist)
             except Exception:
                 pass
             if resposta_ia:
+                _add_hist_ia(wa_to, body, resposta_ia)
                 _send_text(wa_to, resposta_ia)
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
             return
@@ -1127,10 +1146,12 @@ def responder_evento_mensagem(entry: dict) -> None:
         resposta_ia = None
         try:
             from responder_ia import responder_com_ia
-            resposta_ia = responder_com_ia(body, profile_name or None)
+            hist = _get_hist_ia(wa_to)
+            resposta_ia = responder_com_ia(body, profile_name or None, historico=hist)
         except Exception:
             pass
         if resposta_ia:
+            _add_hist_ia(wa_to, body, resposta_ia)
             _send_text(wa_to, resposta_ia)
         _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT); return
 # ===== Decidir próximo passo / salvar ========================================
@@ -1365,10 +1386,12 @@ def _continue_form(ss, wa_to, ses, user_text):
         try:
             from responder_ia import responder_com_ia
             nome_ses = data.get("whatsapp_nome") or None
-            resposta_ia = responder_com_ia(txt, nome_ses)
+            hist = _get_hist_ia(wa_to)
+            resposta_ia = responder_com_ia(txt, nome_ses, historico=hist)
         except Exception:
             pass
         if resposta_ia:
+            _add_hist_ia(wa_to, txt, resposta_ia)
             _send_text(wa_to, resposta_ia)
         else:
             _send_text(wa_to, "Não entendi. Digite apenas o número da especialidade.")
