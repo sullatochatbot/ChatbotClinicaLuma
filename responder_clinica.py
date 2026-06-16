@@ -591,6 +591,29 @@ def _normalize_panfleto(raw: str):
         return f"P={dig}", raw
     return "", raw
 
+# ===== Handoff para humano ===================================================
+_HANDOFF_NUMERO = "5511975379655"
+_GATILHOS_HANDOFF = ["atendente", "falar com humano", "falar com pessoa", "quero falar com alguem", "quero falar com alguém"]
+
+def _enviar_alerta_handoff(wa_to, nome_cliente):
+    try:
+        msg = (
+            f"🔔 *Solicitação de Atendimento Humano*\n\n"
+            f"Cliente: {nome_cliente}\n"
+            f"WhatsApp: +{wa_to}\n"
+            f"Via: ChatBot Clínica Luma\n\n"
+            "Por favor, entre em contato!"
+        )
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": _HANDOFF_NUMERO,
+            "text": {"body": msg}
+        }
+        requests.post(GRAPH_URL, headers=HEADERS, json=payload, timeout=10)
+        print("🔔 Alerta handoff Clínica enviado")
+    except Exception as e:
+        print("❌ Erro alerta handoff:", e)
+
 # ===== Histórico de conversa para IA =========================================
 _HIST_IA: dict = {}
 _HIST_TTL = 3600
@@ -1010,6 +1033,20 @@ def responder_evento_mensagem(entry: dict) -> None:
                 _add_hist_ia(wa_to, body, resposta_ia)
                 _send_text(wa_to, resposta_ia)
             _send_buttons(wa_to, _welcome_named(profile_name), BTN_ROOT)
+            return
+
+        # HANDOFF — detectar antes de qualquer outra lógica
+        if any(g in low for g in _GATILHOS_HANDOFF):
+            _enviar_alerta_handoff(wa_to, profile_name)
+            _send_text(
+                wa_to,
+                "Entendido! 👍 Já avisamos nossa equipe.\n\n"
+                "Em breve uma atendente vai entrar em contato com você.\n\n"
+                "Se preferir, fale diretamente:\n"
+                f"📱 {LINK_WHATSAPP}\n"
+                f"☎️ {TEL_FIXO}"
+            )
+            SESS[wa_to] = {"route": "root", "stage": "", "data": {}, "last_at": now}
             return
 
         # reset manual da conversa
