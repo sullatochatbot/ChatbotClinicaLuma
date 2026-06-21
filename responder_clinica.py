@@ -442,13 +442,14 @@ _CANAIS = (
 )
 
 def _welcome_named(name):
-    saudacao = (f"Bem-vindo(a), {name.split()[0]}! Este é o atendimento virtual da {NOME_EMPRESA}."
-                if name else f"Bem-vindo à {NOME_EMPRESA}!")
+
+    primeiro_nome = name.split()[0] if name else ""
+
     return (
-        f"{saudacao}\n\n"
-        f"Agende sua consulta por qualquer canal:\n"
-        f"{_CANAIS}\n\n"
-        f"Ou escolha uma opção abaixo 👇"
+        f"Olá {primeiro_nome}! 👋\n\n"
+        f"Seja bem-vindo à {NOME_EMPRESA}.\n\n"
+        f"💬 Você também pode escrever sua dúvida ou enviar um áudio explicando o que precisa.\n\n"
+        f"Se preferir, utilize uma das opções abaixo:"
     )
 
 WELCOME_GENERIC = _welcome_named("")
