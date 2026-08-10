@@ -430,9 +430,9 @@ def enviar_template_clinica_disparo(numero):
 
 # ===== Botões/UI ==============================================================
 LINK_DOCTORALIA = "https://www.doctoralia.com.br/clinicas/luma-clinica-da-familia"
-LINK_WHATSAPP   = "https://wa.me/5511975379655"
+LINK_WHATSAPP   = "https://wa.me/5511968501810"
 LINK_MAPS       = "https://maps.google.com/?q=Rua+Utrecht,+129,+Vila+Rio+Branco,+São+Paulo,+SP,+03878-000"
-TEL_WHATSAPP    = "(11) 97537-9655"
+TEL_WHATSAPP    = "(11) 96850-1810"
 TEL_FIXO        = "(11) 2043-9937"
 
 _CANAIS = (
@@ -593,7 +593,7 @@ def _normalize_panfleto(raw: str):
     return "", raw
 
 # ===== Handoff para humano ===================================================
-_HANDOFF_NUMERO = "5511975379655"
+_HANDOFF_NUMERO = "5511968501810"
 _GATILHOS_HANDOFF = ["atendente", "falar com humano", "falar com pessoa", "quero falar com alguem", "quero falar com alguém"]
 
 def _enviar_alerta_handoff(wa_to, nome_cliente):
