@@ -19,7 +19,7 @@ def responder_com_ia(mensagem: str, nome: Optional[str] = None, historico: list 
             "Harmonização Facial, Medicina do Trabalho, Nutrição/Medicina Esportiva, Ortopedia, Pediatria, Psiquiatria. "
             "Exames: Admissional/Demissional, Laboratoriais, Eletrocardiograma, Raio X, Toxicológico. "
             "Atendimento: convênio e particular. Horário: segunda a sexta das 9h às 17h. "
-            "Contato: Fixo (11) 2043-9937 | WhatsApp: https://wa.me/5511975379655. "
+            "Contato: Fixo (11) 2043-9937 | WhatsApp: https://wa.me/5511968501810. "
             "Site: https://www.lumaclinicadafamilia.com.br. "
             "Instagram: https://www.instagram.com/luma_clinicamedica. "
             "Agendamento online (Doctoralia): https://www.doctoralia.com.br/clinicas/luma-clinica-da-familia. "
