@@ -637,9 +637,11 @@ _SLUG_PARA_ESPECIALIDADE = {
 }
 
 # Marcador aceito: [ORIGEM-SLUG] ou ORIGEM-SLUG sem colchetes, em qualquer
-# posição do texto (ex.: vindo de um link de anúncio pré-preenchido).
+# posição do texto (ex.: vindo de um link de anúncio pré-preenchido). O
+# "-SLUG" é opcional: [ORIGEM] sozinho (link institucional fixo do canal,
+# sem campanha/interesse específico) também é aceito.
 _PADRAO_ORIGEM_TAG_RE = re.compile(
-    r"\[?\b(" + "|".join(ORIGENS_PERMITIDAS) + r")-([A-Z0-9][A-Z0-9-]*)\]?",
+    r"\[?\b(" + "|".join(ORIGENS_PERMITIDAS) + r")\b(?:-([A-Z0-9][A-Z0-9-]*))?\]?",
     re.IGNORECASE,
 )
 
@@ -650,12 +652,18 @@ def detectar_origem_e_interesse(texto: str):
     amigáveis (ex.: "Google"/"Tricologia / Calvície"), ou None se não houver
     marcador ou se o slug não corresponder a nenhuma consulta/exame/
     procedimento cadastrado nas 3 listas centrais.
+
+    Também reconhece o marcador institucional [ORIGEM] sem slug (ex.:
+    [GOOGLE]), usado nos links fixos de cada canal: devolve interesse vazio.
     """
     m = _PADRAO_ORIGEM_TAG_RE.search(texto or "")
     if not m:
         return None
-    origem_raw, slug_raw = m.group(1).upper(), m.group(2).upper()
-    especialidade = _SLUG_PARA_ESPECIALIDADE.get(slug_raw)
+    origem_raw = m.group(1).upper()
+    slug_raw = m.group(2)
+    if not slug_raw:
+        return {"origem": origem_raw.capitalize(), "interesse": ""}
+    especialidade = _SLUG_PARA_ESPECIALIDADE.get(slug_raw.upper())
     if not especialidade:
         return None
     return {"origem": origem_raw.capitalize(), "interesse": especialidade}
