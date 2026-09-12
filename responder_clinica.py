@@ -961,6 +961,23 @@ def responder_evento_mensagem(entry: dict) -> None:
     profile_name = (contacts[0].get("profile") or {}).get("name") or ""
     mtype        = msg.get("type")
 
+    # ===== Atribuição inicial de marketing via marcador [ORIGEM-SLUG] ===========
+    # Adiantado para antes do REGISTRO DE ACESSO INTELIGENTE (abaixo), pra que a
+    # própria linha "acesso_inicial" já saia do _post_webapp com origem_anuncio/
+    # interesse_anuncio preenchidos (via setdefault em _post_webapp), sem precisar
+    # esperar o paciente completar/confirmar o fluxo. Registra só a aquisição
+    # histórica do lead — campos próprios, nunca toca em ses["data"]["especialidade"]/
+    # ["origem_cliente"] nem em "_origem_done": o fluxo normal de especialidade/
+    # origem da clínica continua 100% independente disso. Sem marcador,
+    # detectar_origem_e_interesse() retorna None e nada muda aqui.
+    _body_inicial = (msg.get("text", {}).get("body") or "").strip()
+    _deteccao_marketing = detectar_origem_e_interesse(_body_inicial)
+    if _deteccao_marketing and wa_to not in _LEAD_MARKETING_INICIAL:
+        _LEAD_MARKETING_INICIAL[wa_to] = {
+            "origem_anuncio": _deteccao_marketing["origem"],
+            "interesse_anuncio": _deteccao_marketing["interesse"],
+        }
+
     # ===== cria/recupera sessão =====
     ses = SESS.get(wa_to)
     now = _now_sp()
@@ -1216,18 +1233,8 @@ def responder_evento_mensagem(entry: dict) -> None:
         body = (msg.get("text", {}).get("body") or "").strip()
         low  = body.lower()
 
-        # ===== Atribuição inicial de marketing via marcador [ORIGEM-SLUG] ===========
-        # Registra só a aquisição histórica do lead (origem_anuncio/interesse_anuncio),
-        # campos próprios — nunca toca em ses["data"]["especialidade"]/["origem_cliente"]
-        # nem em "_origem_done": o fluxo normal de especialidade/origem da clínica
-        # continua 100% independente disso. Sem marcador, detectar_origem_e_interesse()
-        # retorna None e nada muda aqui.
-        _deteccao_marketing = detectar_origem_e_interesse(body)
-        if _deteccao_marketing and wa_to not in _LEAD_MARKETING_INICIAL:
-            _LEAD_MARKETING_INICIAL[wa_to] = {
-                "origem_anuncio": _deteccao_marketing["origem"],
-                "interesse_anuncio": _deteccao_marketing["interesse"],
-            }
+        # Detecção do marcador [ORIGEM-SLUG] foi adiantada para antes do
+        # REGISTRO DE ACESSO INTELIGENTE (início da função) — ver bloco lá.
 
         # Áudio transcrito OU emoji puro: vai direto para IA, ignora etapa ativa
         if msg.get("_audio_transcricao") or (body and not any(c.isalpha() or c.isdigit() for c in body)):
