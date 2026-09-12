@@ -499,6 +499,12 @@ ESPECIALIDADES_ORDER = [
     "Ortopedia",
     "Pediatria",
     "Psiquiatria",
+    "Tricologia",
+    "Medicina Regenerativa",
+    "Ultraformer III",
+    "Sedação Consciente",
+    "Infiltração no Joelho",
+    "Infiltrações para Dores Musculares",
 ]
 
 def _especialidade_menu_texto():
