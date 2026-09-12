@@ -56,16 +56,15 @@ def _post_webapp(payload: dict) -> dict:
         or ""
     )
 
-    # Fallback do rastreamento de origem/interesse inicial do lead (marcador
-    # [ORIGEM-SLUG] detectado na primeira mensagem) — só completa o que ainda
-    # não foi informado por este payload, nunca sobrescreve especialidade/
-    # origem já definidos explicitamente pelo fluxo normal.
-    _captura_origem_inicial = _LEAD_ORIGEM_INICIAL.get(data["contato"])
-    if _captura_origem_inicial:
-        if not data.get("especialidade"):
-            data["especialidade"] = _captura_origem_inicial["interesse"]
-        if not data.get("origem_cliente") and not data.get("origem"):
-            data["origem_cliente"] = _captura_origem_inicial["origem"]
+    # Atribuição inicial de marketing (marcador [ORIGEM-SLUG] detectado na
+    # primeira mensagem) — campos PRÓPRIOS, independentes de origem_cliente/
+    # especialidade (que continuam só do fluxo normal, nunca tocados aqui).
+    # Registro histórico da aquisição do lead: nunca sobrescrito depois,
+    # mesmo que o paciente troque de especialidade durante a conversa.
+    _captura_marketing = _LEAD_MARKETING_INICIAL.get(data["contato"])
+    if _captura_marketing:
+        data.setdefault("origem_anuncio", _captura_marketing["origem_anuncio"])
+        data.setdefault("interesse_anuncio", _captura_marketing["interesse_anuncio"])
 
     data["whatsapp_nome"] = (
         data.get("whatsapp_nome")
@@ -112,7 +111,8 @@ def _post_webapp(payload: dict) -> dict:
     # Debug enxuto (mostra exatamente o que vai para o Sheets)
     dbg = {k: data.get(k) for k in [
         "message_id","contato","whatsapp_nome","especialidade","exame","forma","tipo",
-        "origem_cliente","panfleto_codigo","origem_outro_texto"
+        "origem_cliente","panfleto_codigo","origem_outro_texto",
+        "origem_anuncio","interesse_anuncio"
     ]}
     print("[SEND→Sheets] url:", CLINICA_SHEETS_URL)
     print("[SEND→Sheets] campos:", json.dumps(dbg, ensure_ascii=False))
@@ -592,14 +592,17 @@ def _limpar_marcador_origem(texto: str) -> str:
     limpo = _PADRAO_ORIGEM_TAG_RE.sub("", texto or "")
     return re.sub(r"\s{2,}", " ", limpo).strip()
 
-# Fallback de origem/interesse inicial do lead, por número de WhatsApp —
-# independente de ses["data"], porque toda transição de rota hoje recria
+# Atribuição inicial de marketing (origem_anuncio/interesse_anuncio), por
+# número de WhatsApp — campos PRÓPRIOS do rastreamento, independentes de
+# ses["data"]["origem_cliente"]/["especialidade"] (que continuam só do
+# fluxo normal da clínica, nunca usados como destino deste rastreamento).
+# Guardado fora de ses["data"] porque toda transição de rota hoje recria
 # ses["data"] do zero (ex.: clicar em "Consulta"/"Exames" apaga o dict
-# antigo). Sem isso, o dado capturado na primeira mensagem se perderia
+# antigo) — sem isso, o dado capturado na primeira mensagem se perderia
 # assim que o paciente seguisse pelo menu. Consultado só em _post_webapp,
-# só como fallback (nunca sobrescreve especialidade/origem já preenchidos
-# pelo fluxo normal) — ver requisito de não sobrescrever dado explícito.
-_LEAD_ORIGEM_INICIAL: Dict[str, Dict[str, str]] = {}
+# como registro histórico da aquisição do lead: nunca sobrescrito depois,
+# mesmo que o paciente troque de especialidade durante a conversa.
+_LEAD_MARKETING_INICIAL: Dict[str, Dict[str, str]] = {}
 
 def _especialidade_menu_texto():
     linhas = ["Escolha a especialidade digitando o *número* correspondente:"]
@@ -1120,18 +1123,18 @@ def responder_evento_mensagem(entry: dict) -> None:
         body = (msg.get("text", {}).get("body") or "").strip()
         low  = body.lower()
 
-        # ===== Rastreamento de origem/interesse inicial via marcador [ORIGEM-SLUG] ===
-        # Só pré-preenche o que ainda não foi informado — nunca sobrescreve
-        # especialidade/origem já definidos pelo fluxo normal. Sem marcador,
-        # detectar_origem_e_interesse() retorna None e nada muda aqui.
-        _deteccao_origem = detectar_origem_e_interesse(body)
-        if _deteccao_origem:
-            _LEAD_ORIGEM_INICIAL[wa_to] = _deteccao_origem
-            if not ses["data"].get("especialidade"):
-                ses["data"]["especialidade"] = _deteccao_origem["interesse"]
-            if not ses["data"].get("origem_cliente"):
-                ses["data"]["origem_cliente"] = _deteccao_origem["origem"]
-                ses["data"]["_origem_done"] = True
+        # ===== Atribuição inicial de marketing via marcador [ORIGEM-SLUG] ===========
+        # Registra só a aquisição histórica do lead (origem_anuncio/interesse_anuncio),
+        # campos próprios — nunca toca em ses["data"]["especialidade"]/["origem_cliente"]
+        # nem em "_origem_done": o fluxo normal de especialidade/origem da clínica
+        # continua 100% independente disso. Sem marcador, detectar_origem_e_interesse()
+        # retorna None e nada muda aqui.
+        _deteccao_marketing = detectar_origem_e_interesse(body)
+        if _deteccao_marketing and wa_to not in _LEAD_MARKETING_INICIAL:
+            _LEAD_MARKETING_INICIAL[wa_to] = {
+                "origem_anuncio": _deteccao_marketing["origem"],
+                "interesse_anuncio": _deteccao_marketing["interesse"],
+            }
 
         # Áudio transcrito OU emoji puro: vai direto para IA, ignora etapa ativa
         if msg.get("_audio_transcricao") or (body and not any(c.isalpha() or c.isdigit() for c in body)):
