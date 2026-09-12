@@ -476,9 +476,15 @@ def _welcome_named(name):
 
 WELCOME_GENERIC = _welcome_named("")
 
-BTN_ROOT = [{"id": "op_consulta", "title": "Consulta"},
-            {"id": "op_exames",   "title": "Exames"},
-            {"id": "op_mais",     "title": "+ Opções"}]
+BTN_ROOT = [{"id": "op_consulta",             "title": "Consulta"},
+            {"id": "op_exames_procedimentos", "title": "Exames/Procedimentos"},
+            {"id": "op_mais",                 "title": "+ Opções"}]
+
+# Tela intermediária aberta por "Exames/Procedimentos" no menu raiz — reaproveita
+# os MESMOS ids/handlers de op_exames e op_procedimentos (nenhum fluxo novo).
+BTN_EXAMES_PROCEDIMENTOS = [{"id": "op_exames",       "title": "Exames"},
+                             {"id": "op_procedimentos", "title": "Procedimentos"},
+                             {"id": "op_mais",          "title": "+ Opções"}]
 
 BTN_MAIS_2 = [{"id": "op_retorno",   "title": "Retorno de consultas"},
               {"id": "op_resultado", "title": "Resultado de exames"},
@@ -488,9 +494,8 @@ BTN_MAIS_3 = [{"id": "op_endereco",        "title": "Endereço"},
               {"id": "op_editar_endereco", "title": "Editar dados gerais"},
               {"id": "op_mais4",           "title": "+ Opções"}]
 
-BTN_MAIS_4 = [{"id": "op_sugestoes",      "title": "Sugestões"},
-              {"id": "op_procedimentos",  "title": "Procedimentos"},
-              {"id": "op_voltar_root",    "title": "Voltar ao início"}]
+BTN_MAIS_4 = [{"id": "op_sugestoes",   "title": "Sugestões"},
+              {"id": "op_voltar_root", "title": "Voltar ao início"}]
 
 BTN_FORMA = [{"id": "forma_convenio", "title": "Convênio"},
              {"id": "forma_particular", "title": "Particular"}]
@@ -719,9 +724,8 @@ def _origem_menu_texto():
         "1) Instagram\n"
         "2) Facebook\n"
         "3) Google\n"
-        "4) Panfletos (digite código promocional impresso)\n"
-        "5) Outros\n"
-        "0) Pular\n\n"
+        "4) Panfletos (cód. promoc.)\n"
+        "5) Outros\n\n"
         "Digite apenas o número da opção:"
     )
 
@@ -1031,6 +1035,9 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid_id == "op_consulta":
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}
             _ask_forma(wa_to); return
+        if bid_id == "op_exames_procedimentos":
+            SESS[wa_to] = {"route":"exames_procedimentos","stage":"","data":{}}
+            _send_buttons(wa_to, "Escolha uma opção:", BTN_EXAMES_PROCEDIMENTOS); return
         if bid_id == "op_exames":
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}
             _ask_forma(wa_to); return
@@ -1286,14 +1293,9 @@ def responder_evento_mensagem(entry: dict) -> None:
         if ses and ses.get("stage") == "origem_menu":
             escolha = re.sub(r"\D", "", body or "")
             if not escolha:
-                _send_text(wa_to, "Por favor, digite apenas um número (0 a 5).")
+                _send_text(wa_to, "Por favor, digite apenas um número (1 a 5).")
                 _send_text(wa_to, _origem_menu_texto()); return
             op = int(escolha)
-            if op == 0:
-                ses["data"]["origem_cliente"] = ""
-                ses["data"]["_origem_done"] = True
-                ses["stage"] = None; SESS[wa_to] = ses
-                _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
             if op == 1:
                 ses["data"]["origem_cliente"] = "Instagram"
                 ses["data"]["_origem_done"] = True
@@ -1319,7 +1321,7 @@ def responder_evento_mensagem(entry: dict) -> None:
                 ses["data"]["origem_outro_texto"] = ""     # <<< limpa R
                 ses["stage"] = "origem_outros_texto"; SESS[wa_to] = ses
                 _send_text(wa_to, "Pode nos dizer em poucas palavras de onde nos conheceu?"); return
-            _send_text(wa_to, "Opção inválida. Escolha um número entre 0 e 5.")
+            _send_text(wa_to, "Opção inválida. Escolha um número entre 1 e 5.")
             _send_text(wa_to, _origem_menu_texto()); return
 
         if ses and ses.get("stage") == "origem_outros_texto":
