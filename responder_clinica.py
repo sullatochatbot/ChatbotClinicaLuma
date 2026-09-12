@@ -458,17 +458,19 @@ def _welcome_named(name):
 
     return (
         f"Olá {primeiro_nome}! 👋\n\n"
-        f"Seja bem-vindo à {NOME_EMPRESA}.\n\n"
-        f"💬 Você também pode escrever sua dúvida ou enviar um áudio explicando o que precisa. Por exemplo:\n\n"
-        f"• “Queria saber sobre medicina regenerativa...”\n"
-        f"• “Vocês fazem tricologia?”\n"
-        f"• “Quais procedimentos vocês fazem na face, como Botox e preenchimento?”\n"
-        f"• “Vocês possuem um programa efetivo de emagrecimento?”\n"
-        f"• “Quero saber sobre Ultraformer III”\n"
-        f"• “Fazem infiltração para dor no joelho?”\n"
-        f"• “Me fale sobre a Clínica Luma...”\n"
-        f"• “Quero marcar uma consulta”\n\n"
-        f"Se preferir, utilize uma das opções abaixo:"
+        f"✨ Seja bem-vindo à {NOME_EMPRESA}.\n\n"
+        f"💬 Você também pode escrever sua dúvida ou enviar um áudio 🎙️ explicando o que precisa.\n\n"
+        f"Veja algumas coisas que você pode me perguntar:\n\n"
+        f"🧬 “Queria saber sobre medicina regenerativa...”\n"
+        f"💆‍♀️ “Vocês fazem tricologia?”\n"
+        f"✨ “Quais procedimentos vocês fazem na face, como Botox e preenchimento?”\n"
+        f"⚖️ “Vocês possuem um programa efetivo de emagrecimento?”\n"
+        f"💎 “Quero saber sobre Ultraformer III”\n"
+        f"🦵 “Fazem infiltração para dor no joelho?”\n"
+        f"🏥 “Me fale sobre a Clínica Luma...”\n"
+        f"📅 “Quero marcar uma consulta”\n\n"
+        f"😊 Pode perguntar do seu jeito. Estou aqui para ajudar!\n\n"
+        f"👇 Se preferir, utilize uma das opções abaixo:"
     )
 
 WELCOME_GENERIC = _welcome_named("")
