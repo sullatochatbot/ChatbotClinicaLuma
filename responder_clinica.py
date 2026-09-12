@@ -1,6 +1,6 @@
 # responder_clinica.py — Clínica Luma (Especialidades: lista numerada por texto; Exames: lista numerada)
 # ==============================================================================
-import os, re, json, requests
+import os, re, json, requests, unicodedata
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -55,6 +55,17 @@ def _post_webapp(payload: dict) -> dict:
         or data.get("wa_id")   # ← NOVO fallback
         or ""
     )
+
+    # Fallback do rastreamento de origem/interesse inicial do lead (marcador
+    # [ORIGEM-SLUG] detectado na primeira mensagem) — só completa o que ainda
+    # não foi informado por este payload, nunca sobrescreve especialidade/
+    # origem já definidos explicitamente pelo fluxo normal.
+    _captura_origem_inicial = _LEAD_ORIGEM_INICIAL.get(data["contato"])
+    if _captura_origem_inicial:
+        if not data.get("especialidade"):
+            data["especialidade"] = _captura_origem_inicial["interesse"]
+        if not data.get("origem_cliente") and not data.get("origem"):
+            data["origem_cliente"] = _captura_origem_inicial["origem"]
 
     data["whatsapp_nome"] = (
         data.get("whatsapp_nome")
@@ -514,6 +525,79 @@ ESPECIALIDADES_ORDER = [
     "Infiltração no Joelho",
     "Infiltrações para Dores Musculares",
 ]
+
+# ===== Rastreamento de origem (marketing) por especialidade/procedimento =====
+# Origens oficiais de rastreamento. Lista central única — nenhuma outra lista
+# de origens deve ser criada em nenhum outro lugar do arquivo.
+ORIGENS_PERMITIDAS = ["SITE", "GOOGLE", "FACEBOOK", "INSTAGRAM"]
+
+# Exceção pontual: "Nutrólogo / Med. Esportiva..." usa abreviação e símbolos
+# que não dão pra normalizar mecanicamente num identificador legível — é a
+# única especialidade com slug cadastrado manualmente. Todas as demais (atuais
+# e futuras) geram o slug automaticamente a partir do próprio nome, sem
+# cadastro extra.
+_SLUG_ESPECIALIDADE_OVERRIDE = {
+    "Nutrólogo / Med. Esportiva * Emagrecimento 30+": "NUTROLOGIA-MEDICINA-ESPORTIVA",
+}
+
+# Preposições/artigos/conjunções descartados ao gerar o slug, para um
+# identificador técnico curto (ex.: "Infiltração no Joelho" → "INFILTRACAO-JOELHO").
+_STOPWORDS_SLUG = {"de", "da", "do", "das", "dos", "e", "no", "na", "nos", "nas",
+                   "para", "com", "em", "a", "o", "as", "os"}
+
+def _slug_especialidade(nome: str) -> str:
+    if nome in _SLUG_ESPECIALIDADE_OVERRIDE:
+        return _SLUG_ESPECIALIDADE_OVERRIDE[nome]
+    t = unicodedata.normalize("NFKD", nome.upper())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    palavras = re.findall(r"[A-Z0-9]+", t)
+    palavras = [p for p in palavras if p.lower() not in _STOPWORDS_SLUG]
+    return "-".join(palavras)
+
+# Gerado automaticamente a partir da lista central — nunca mantido à mão.
+# Toda especialidade/procedimento novo incluído em ESPECIALIDADES_ORDER já
+# nasce apto às 4 origens, sem precisar tocar neste dict nem no detector.
+_SLUG_PARA_ESPECIALIDADE = {_slug_especialidade(nome): nome for nome in ESPECIALIDADES_ORDER}
+
+# Marcador aceito: [ORIGEM-SLUG] ou ORIGEM-SLUG sem colchetes, em qualquer
+# posição do texto (ex.: vindo de um link de anúncio pré-preenchido).
+_PADRAO_ORIGEM_TAG_RE = re.compile(
+    r"\[?\b(" + "|".join(ORIGENS_PERMITIDAS) + r")-([A-Z0-9][A-Z0-9-]*)\]?",
+    re.IGNORECASE,
+)
+
+def detectar_origem_e_interesse(texto: str):
+    """
+    Detector genérico — nenhum IF por especialidade/origem. Reconhece um
+    marcador [ORIGEM-SLUG] no texto e devolve {"origem","interesse"} com
+    valores amigáveis (ex.: "Google"/"Tricologia"), ou None se não houver
+    marcador ou se o slug não corresponder a nenhuma especialidade/
+    procedimento cadastrado em ESPECIALIDADES_ORDER.
+    """
+    m = _PADRAO_ORIGEM_TAG_RE.search(texto or "")
+    if not m:
+        return None
+    origem_raw, slug_raw = m.group(1).upper(), m.group(2).upper()
+    especialidade = _SLUG_PARA_ESPECIALIDADE.get(slug_raw)
+    if not especialidade:
+        return None
+    return {"origem": origem_raw.capitalize(), "interesse": especialidade}
+
+def _limpar_marcador_origem(texto: str) -> str:
+    """Remove só o marcador técnico [ORIGEM-SLUG] do texto, preservando o
+    resto da frase — usado apenas na cópia enviada à IA, nunca no `body`
+    original (histórico/log/debug continuam com o texto intacto)."""
+    limpo = _PADRAO_ORIGEM_TAG_RE.sub("", texto or "")
+    return re.sub(r"\s{2,}", " ", limpo).strip()
+
+# Fallback de origem/interesse inicial do lead, por número de WhatsApp —
+# independente de ses["data"], porque toda transição de rota hoje recria
+# ses["data"] do zero (ex.: clicar em "Consulta"/"Exames" apaga o dict
+# antigo). Sem isso, o dado capturado na primeira mensagem se perderia
+# assim que o paciente seguisse pelo menu. Consultado só em _post_webapp,
+# só como fallback (nunca sobrescreve especialidade/origem já preenchidos
+# pelo fluxo normal) — ver requisito de não sobrescrever dado explícito.
+_LEAD_ORIGEM_INICIAL: Dict[str, Dict[str, str]] = {}
 
 def _especialidade_menu_texto():
     linhas = ["Escolha a especialidade digitando o *número* correspondente:"]
@@ -1034,6 +1118,19 @@ def responder_evento_mensagem(entry: dict) -> None:
         body = (msg.get("text", {}).get("body") or "").strip()
         low  = body.lower()
 
+        # ===== Rastreamento de origem/interesse inicial via marcador [ORIGEM-SLUG] ===
+        # Só pré-preenche o que ainda não foi informado — nunca sobrescreve
+        # especialidade/origem já definidos pelo fluxo normal. Sem marcador,
+        # detectar_origem_e_interesse() retorna None e nada muda aqui.
+        _deteccao_origem = detectar_origem_e_interesse(body)
+        if _deteccao_origem:
+            _LEAD_ORIGEM_INICIAL[wa_to] = _deteccao_origem
+            if not ses["data"].get("especialidade"):
+                ses["data"]["especialidade"] = _deteccao_origem["interesse"]
+            if not ses["data"].get("origem_cliente"):
+                ses["data"]["origem_cliente"] = _deteccao_origem["origem"]
+                ses["data"]["_origem_done"] = True
+
         # Áudio transcrito OU emoji puro: vai direto para IA, ignora etapa ativa
         if msg.get("_audio_transcricao") or (body and not any(c.isalpha() or c.isdigit() for c in body)):
             SESS[wa_to] = {"route": "root", "stage": "", "data": {}, "last_at": now}
@@ -1041,7 +1138,7 @@ def responder_evento_mensagem(entry: dict) -> None:
             try:
                 from responder_ia import responder_com_ia
                 hist = _get_hist_ia(wa_to)
-                resposta_ia = responder_com_ia(body, profile_name or None, historico=hist)
+                resposta_ia = responder_com_ia(_limpar_marcador_origem(body), profile_name or None, historico=hist)
             except Exception:
                 pass
             if resposta_ia:
@@ -1199,7 +1296,7 @@ def responder_evento_mensagem(entry: dict) -> None:
         try:
             from responder_ia import responder_com_ia
             hist = _get_hist_ia(wa_to)
-            resposta_ia = responder_com_ia(body, profile_name or None, historico=hist)
+            resposta_ia = responder_com_ia(_limpar_marcador_origem(body), profile_name or None, historico=hist)
         except Exception:
             pass
         if resposta_ia:
