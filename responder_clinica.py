@@ -214,7 +214,7 @@ def _upsert_paciente(ss, d): return
 def _add_solicitacao(ss, d):
     # chave simples: fone + item + forma + minuto
     chave = f"{(d.get('contato') or '').strip()}|" \
-        f"{(d.get('especialidade') or d.get('exame') or '').strip()}|" \
+        f"{(d.get('especialidade') or d.get('exame') or d.get('procedimento') or '').strip()}|" \
         f"{(d.get('forma') or '').strip()}"
 
     if chave in _ULTIMAS_CHAVES:
@@ -225,11 +225,12 @@ def _add_solicitacao(ss, d):
     # >>> NOVO: dedupe consciente por fluxo (consulta vs exames)
     payload = _map_to_captacao(d)
 
-    # 🔧 GARANTE QUE EXAME OU ESPECIALIDADE SEJA ENVIADO
-    payload["especialidade"] = d.get("especialidade") or d.get("exame") or ""
+    # 🔧 GARANTE QUE EXAME, ESPECIALIDADE OU PROCEDIMENTO SEJA ENVIADO
+    # (mesma coluna D do Sheets — "tipo" já distingue qual é qual)
+    payload["especialidade"] = d.get("especialidade") or d.get("exame") or d.get("procedimento") or ""
 
     base = (d.get("wa_id") or d.get("contato") or "").strip()
-    tipo = (d.get("tipo") or ("exames" if d.get("exame") else "consulta")).lower()
+    tipo = (d.get("tipo") or ("exames" if d.get("exame") else "procedimentos" if d.get("procedimento") else "consulta")).lower()
 
     payload["dedupe_key"] = f"{base}-{tipo}-{int(time.time())}"
 
@@ -487,8 +488,9 @@ BTN_MAIS_3 = [{"id": "op_endereco",        "title": "Endereço"},
               {"id": "op_editar_endereco", "title": "Editar dados gerais"},
               {"id": "op_mais4",           "title": "+ Opções"}]
 
-BTN_MAIS_4 = [{"id": "op_sugestoes",   "title": "Sugestões"},
-              {"id": "op_voltar_root", "title": "Voltar ao início"}]
+BTN_MAIS_4 = [{"id": "op_sugestoes",      "title": "Sugestões"},
+              {"id": "op_procedimentos",  "title": "Procedimentos"},
+              {"id": "op_voltar_root",    "title": "Voltar ao início"}]
 
 BTN_FORMA = [{"id": "forma_convenio", "title": "Convênio"},
              {"id": "forma_particular", "title": "Particular"}]
@@ -505,41 +507,104 @@ BTN_PACIENTE = [{"id": "pac_voce",  "title": "Eu mesmo(a)"},
 BTN_PAC_DOC = [{"id": "pacdoc_sim", "title": "Sim"},
                {"id": "pacdoc_nao", "title": "Não"}]
 
-MSG_SUGESTOES = ("💡 Ajude a Clínica Luma a melhorar! Diga quais *especialidades* ou *exames* "
-                 "você gostaria que tivéssemos.")
+MSG_SUGESTOES = ("💡 Ajude a Clínica Luma a melhorar! Diga quais *consultas*, *exames* ou "
+                 "*procedimentos* você gostaria que tivéssemos.")
 
-# ===== Catálogos / Especialidades e Exames ===================================
-ESPECIALIDADES_ORDER = [
+# ===== Catálogos / Consultas, Exames e Procedimentos =========================
+# 3 categorias de atendimento da clínica. Sedação Consciente NÃO entra em
+# nenhuma das 3 — é um recurso de conforto durante procedimentos, não um item
+# selecionável (conhecimento institucional tratado separadamente na IA).
+CONSULTAS_ORDER = [
     "Clínico Geral",
-    "Dermatologia e Estética",
-    "Dentista / Bucomaxilofacial",
-    "Endocrinologia",
-    "Harmonização Facial",
-    "Medicina do Trabalho",
-    "Nutrólogo / Med. Esportiva * Emagrecimento 30+",
-    "Ortopedia",
+    "Dermatologia",
     "Pediatria",
+    "Ortopedia",
+    "Bucomaxilo Facial",
+    "Ocupacional / Medicina do Trabalho",
     "Psiquiatria",
-    "Tricologia",
+    "Endocrinologia e Emagrecimento",
     "Medicina Regenerativa",
-    "Ultraformer III",
-    "Sedação Consciente",
-    "Infiltração no Joelho",
-    "Infiltrações para Dores Musculares",
+    "Tricologia / Calvície",
+    "Medicina da Família e Comunidade",
+    "Cardiologia",
+    "Vascular",
 ]
 
-# ===== Rastreamento de origem (marketing) por especialidade/procedimento =====
+def _especialidade_menu_texto():
+    linhas = ["Escolha a consulta digitando o *número* correspondente:"]
+    for i, nome in enumerate(CONSULTAS_ORDER, start=1):
+        linhas.append(f"{i:>2}) {nome}")
+    linhas.append("\nEx.: digite o número correspondente")
+    return "\n".join(linhas)
+
+def _ask_especialidade_num(wa_to, ses):
+    ses["stage"] = "especialidade_num"; SESS[wa_to] = ses
+    _send_text(wa_to, _especialidade_menu_texto())
+
+EXAMES_ORDER = [
+    "Exames Laboratoriais",
+    "Raio X",
+    "Eletrocardiograma",
+    "Toxicológico - CNH",
+    "Bioimpedância",
+    "Biópsia Dermatológica",
+    "Dermatoscopia Capilar",
+    "Dermatoscopia de Pele",
+    "Admissional / Demissional",
+    "ASO",
+    "PCMSO",
+    "PGR",
+    # Adicione novos exames aqui mantendo o rótulo canônico que você deseja ver no Sheets
+]
+
+def _exame_menu_texto():
+    linhas = ["Escolha o exame digitando o *número* correspondente:"]
+    for i, nome in enumerate(EXAMES_ORDER, start=1):
+        linhas.append(f"{i:>2}) {nome}")
+    linhas.append("\nEx.: por favor, digite o número correspondente ao exame ")
+    return "\n".join(linhas)
+
+def _ask_exame_num(wa_to, ses):
+    ses["stage"] = "exame_num"; SESS[wa_to] = ses
+    _send_text(wa_to, _exame_menu_texto())
+
+PROCEDIMENTOS_ORDER = [
+    "Estética Facial e Corporal",
+    "Tratamento de Disfunção Temporomandibular",
+    "Tratamento de Hiperidrose",
+    "Viscosuplementação",
+    "Infiltração Articular",
+    "PRP Capilar",
+    "MMP Capilar",
+    "Transplante de Sobrancelhas",
+    "Transplante Capilar",
+    "Ultraformer III",
+    "Laser de CO2",
+    # Adicione novos procedimentos aqui mantendo o rótulo canônico que você deseja ver no Sheets
+]
+
+def _procedimento_menu_texto():
+    linhas = ["Escolha o procedimento digitando o *número* correspondente:"]
+    for i, nome in enumerate(PROCEDIMENTOS_ORDER, start=1):
+        linhas.append(f"{i:>2}) {nome}")
+    linhas.append("\nEx.: digite o número correspondente")
+    return "\n".join(linhas)
+
+def _ask_procedimento_num(wa_to, ses):
+    ses["stage"] = "procedimento_num"; SESS[wa_to] = ses
+    _send_text(wa_to, _procedimento_menu_texto())
+
+# ===== Rastreamento de origem (marketing) por consulta/exame/procedimento ====
 # Origens oficiais de rastreamento. Lista central única — nenhuma outra lista
 # de origens deve ser criada em nenhum outro lugar do arquivo.
 ORIGENS_PERMITIDAS = ["SITE", "GOOGLE", "FACEBOOK", "INSTAGRAM"]
 
-# Exceção pontual: "Nutrólogo / Med. Esportiva..." usa abreviação e símbolos
-# que não dão pra normalizar mecanicamente num identificador legível — é a
-# única especialidade com slug cadastrado manualmente. Todas as demais (atuais
-# e futuras) geram o slug automaticamente a partir do próprio nome, sem
-# cadastro extra.
+# Exceção pontual: "Tricologia / Calvície" usa slug reduzido por decisão
+# comercial (link mais curto e estável) — é a única exceção cadastrada
+# manualmente. Todas as demais (atuais e futuras, nas 3 categorias) geram o
+# slug automaticamente a partir do próprio nome, sem cadastro extra.
 _SLUG_ESPECIALIDADE_OVERRIDE = {
-    "Nutrólogo / Med. Esportiva * Emagrecimento 30+": "NUTROLOGIA-MEDICINA-ESPORTIVA",
+    "Tricologia / Calvície": "TRICOLOGIA",
 }
 
 # Preposições/artigos/conjunções descartados ao gerar o slug, para um
@@ -556,10 +621,15 @@ def _slug_especialidade(nome: str) -> str:
     palavras = [p for p in palavras if p.lower() not in _STOPWORDS_SLUG]
     return "-".join(palavras)
 
-# Gerado automaticamente a partir da lista central — nunca mantido à mão.
-# Toda especialidade/procedimento novo incluído em ESPECIALIDADES_ORDER já
-# nasce apto às 4 origens, sem precisar tocar neste dict nem no detector.
-_SLUG_PARA_ESPECIALIDADE = {_slug_especialidade(nome): nome for nome in ESPECIALIDADES_ORDER}
+# Gerado automaticamente a partir das 3 listas centrais — nunca mantido à mão.
+# Toda consulta/exame/procedimento novo incluído em CONSULTAS_ORDER/
+# EXAMES_ORDER/PROCEDIMENTOS_ORDER já nasce apto às 4 origens, sem precisar
+# tocar neste dict nem no detector.
+_SLUG_PARA_ESPECIALIDADE = {
+    _slug_especialidade(nome): nome
+    for lista in (CONSULTAS_ORDER, EXAMES_ORDER, PROCEDIMENTOS_ORDER)
+    for nome in lista
+}
 
 # Marcador aceito: [ORIGEM-SLUG] ou ORIGEM-SLUG sem colchetes, em qualquer
 # posição do texto (ex.: vindo de um link de anúncio pré-preenchido).
@@ -570,11 +640,11 @@ _PADRAO_ORIGEM_TAG_RE = re.compile(
 
 def detectar_origem_e_interesse(texto: str):
     """
-    Detector genérico — nenhum IF por especialidade/origem. Reconhece um
-    marcador [ORIGEM-SLUG] no texto e devolve {"origem","interesse"} com
-    valores amigáveis (ex.: "Google"/"Tricologia"), ou None se não houver
-    marcador ou se o slug não corresponder a nenhuma especialidade/
-    procedimento cadastrado em ESPECIALIDADES_ORDER.
+    Detector genérico — nenhum IF por item/origem. Reconhece um marcador
+    [ORIGEM-SLUG] no texto e devolve {"origem","interesse"} com valores
+    amigáveis (ex.: "Google"/"Tricologia / Calvície"), ou None se não houver
+    marcador ou se o slug não corresponder a nenhuma consulta/exame/
+    procedimento cadastrado nas 3 listas centrais.
     """
     m = _PADRAO_ORIGEM_TAG_RE.search(texto or "")
     if not m:
@@ -604,37 +674,6 @@ def _limpar_marcador_origem(texto: str) -> str:
 # mesmo que o paciente troque de especialidade durante a conversa.
 _LEAD_MARKETING_INICIAL: Dict[str, Dict[str, str]] = {}
 
-def _especialidade_menu_texto():
-    linhas = ["Escolha a especialidade digitando o *número* correspondente:"]
-    for i, nome in enumerate(ESPECIALIDADES_ORDER, start=1):
-        linhas.append(f"{i:>2}) {nome}")
-    linhas.append("\nEx.: digite o número correspondente")
-    return "\n".join(linhas)
-
-def _ask_especialidade_num(wa_to, ses):
-    ses["stage"] = "especialidade_num"; SESS[wa_to] = ses
-    _send_text(wa_to, _especialidade_menu_texto())
-
-EXAMES_ORDER = [
-    "Admissional / Demissional",   # ← NOVO exame incluído
-    "Exames Laboratoriais",
-    "Eletrocardiograma",
-    "Raio X",
-    "Toxicológico - cnh",
-    # Adicione novos exames aqui mantendo o rótulo canônico que você deseja ver no Sheets
-]
-
-def _exame_menu_texto():
-    linhas = ["Escolha o exame digitando o *número* correspondente:"]
-    for i, nome in enumerate(EXAMES_ORDER, start=1):
-        linhas.append(f"{i:>2}) {nome}")
-    linhas.append("\nEx.: por favor, digite o número correspondente ao exame ")
-    return "\n".join(linhas)
-
-def _ask_exame_num(wa_to, ses):
-    ses["stage"] = "exame_num"; SESS[wa_to] = ses
-    _send_text(wa_to, _exame_menu_texto())
-
 # ===== Validadores e normalização ============================================
 _RE_CPF  = re.compile(r"\D")
 def _cpf_clean(s): return _RE_CPF.sub("", s or "")
@@ -654,7 +693,7 @@ def _validate(key, v, *, data=None):
     if key=="convenio" and (data or {}).get("forma")=="Convênio" and not v: return "Informe o convênio."
     if key=="cep" and not _cep_ok(v):                 return "CEP inválido (8 dígitos)."
     if key=="numero" and not v:                       return "Informe o número."
-    if key in {"forma","nome","especialidade","exame"} and not v: return "Obrigatório."
+    if key in {"forma","nome","especialidade","exame","procedimento"} and not v: return "Obrigatório."
     return None
 
 def _normalize(key, v):
@@ -798,9 +837,23 @@ def _comuns_exames(d):
 
     return campos
 
+def _comuns_procedimento(d):
+    campos = [("forma","Convênio ou Particular?")]
+
+    if d.get("forma")=="Convênio":
+        campos.append(("convenio","Nome do convênio?"))
+
+    campos += [
+        ("procedimento","Qual procedimento?"),
+        ("nome","Informe seu nome completo:")
+    ]
+
+    return campos
+
 def _fields_for(route, d):
     if route=="consulta":         return _comuns_consulta(d)
     if route=="exames":           return _comuns_exames(d)
+    if route=="procedimentos":    return _comuns_procedimento(d)
     if route=="editar_endereco":  return [("cep","Informe seu CEP:"),("numero","Informe o número:")]
     if route=="retorno":
 
@@ -841,6 +894,14 @@ FECHAMENTO_DENTRO = {
              "📅 Prefere agendar agora pelo sistema online?\n"
              f"{LINK_DOCTORALIA}\n\n"
              f"📱 WhatsApp: {LINK_WHATSAPP}\n"
+             f"☎️ Fixo: {TEL_FIXO}",
+
+    "procedimentos":"✅ Perfeito! Seu pedido de procedimento foi recebido.\n\n"
+             "Uma atendente entrará em contato para confirmar.\n\n"
+             "⏰ Atendimento: segunda a sexta das 9h às 17h.\n\n"
+             "📅 Prefere agendar agora pelo sistema online?\n"
+             f"{LINK_DOCTORALIA}\n\n"
+             f"📱 WhatsApp: {LINK_WHATSAPP}\n"
              f"☎️ Fixo: {TEL_FIXO}"
 }
 
@@ -855,6 +916,15 @@ FECHAMENTO_FORA = {
                f"☎️ Fixo: {TEL_FIXO}",
 
     "exames":"✅ Perfeito! Seu pedido de exame foi recebido.\n\n"
+             "📩 Solicitação registrada com sucesso.\n\n"
+             "⏰ Estamos fora do horário agora.\n"
+             "Nossa equipe atende de segunda a sexta das 9h às 17h.\n\n"
+             "📅 Se preferir, agende agora pelo sistema online:\n"
+             f"{LINK_DOCTORALIA}\n\n"
+             f"📱 WhatsApp: {LINK_WHATSAPP}\n"
+             f"☎️ Fixo: {TEL_FIXO}",
+
+    "procedimentos":"✅ Perfeito! Seu pedido de procedimento foi recebido.\n\n"
              "📩 Solicitação registrada com sucesso.\n\n"
              "⏰ Estamos fora do horário agora.\n"
              "Nossa equipe atende de segunda a sexta das 9h às 17h.\n\n"
@@ -964,6 +1034,9 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid_id == "op_exames":
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}
             _ask_forma(wa_to); return
+        if bid_id == "op_procedimentos":
+            SESS[wa_to] = {"route":"procedimentos","stage":"forma","data":{"tipo":"procedimentos"}}
+            _ask_forma(wa_to); return
 
         # + Opções → Menus adicionais
         if bid_id == "op_mais":
@@ -1067,6 +1140,11 @@ def responder_evento_mensagem(entry: dict) -> None:
                     ses["stage"] = "convenio"; SESS[wa_to] = ses
                     _send_text(wa_to, "Qual o nome do convênio?"); return
                 _ask_exame_num(wa_to, ses); return
+            if ses.get("route") == "procedimentos":
+                if ses["data"]["forma"] == "Convênio" and not ses["data"].get("convenio"):
+                    ses["stage"] = "convenio"; SESS[wa_to] = ses
+                    _send_text(wa_to, "Qual o nome do convênio?"); return
+                _ask_procedimento_num(wa_to, ses); return
             SESS[wa_to] = ses; _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
 
         if bid_id in {"pac_voce","pac_outro"}:
@@ -1100,8 +1178,8 @@ def responder_evento_mensagem(entry: dict) -> None:
         if bid_id in {"confirmar","corrigir"}:
             ses = SESS.get(wa_to) or {"route":"root","stage":"","data":{}}
             if bid_id == "corrigir":
-                tipo_atual = (ses.get("data") or {}).get("tipo") or ("consulta" if ses.get("route")=="consulta" else "exames")
-                nova_route = "exames" if tipo_atual == "exames" else "consulta"
+                tipo_atual = (ses.get("data") or {}).get("tipo") or ses.get("route") or "consulta"
+                nova_route = tipo_atual if tipo_atual in {"consulta", "exames", "procedimentos"} else "consulta"
                 SESS[wa_to] = {"route": nova_route, "stage": "forma", "data": {"tipo": nova_route}}
                 _send_text(wa_to, "Sem problemas! Vamos corrigir. Primeiro:"); _ask_forma(wa_to); return
             ses["data"]["_confirmado"] = True; SESS[wa_to] = ses
@@ -1184,7 +1262,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # decisões simples por texto (quando bot perguntou)
         ses_tmp = SESS.get(wa_to)
-        if ses_tmp and ses_tmp.get("route") in {"consulta","exames"} and ses_tmp.get("stage") == "paciente_doc_choice":
+        if ses_tmp and ses_tmp.get("route") in {"consulta","exames","procedimentos"} and ses_tmp.get("stage") == "paciente_doc_choice":
             if low in {"sim","s","yes","y"}:
                 ses_tmp["stage"] = "paciente_doc"; SESS[wa_to] = ses_tmp
                 _send_text(wa_to, "Informe o CPF ou RG do paciente:"); return
@@ -1283,7 +1361,7 @@ def responder_evento_mensagem(entry: dict) -> None:
 
         # fluxo ativo por texto
         ses = SESS.get(wa_to)
-        active_routes = {"consulta","exames","retorno","resultado","pesquisa","editar_endereco"}
+        active_routes = {"consulta","exames","procedimentos","retorno","resultado","pesquisa","editar_endereco"}
         if ses and ses.get("route") in active_routes and ses.get("stage"):
             _continue_form(ss, wa_to, ses, body); return
         ses = SESS.get(wa_to)
@@ -1295,6 +1373,8 @@ def responder_evento_mensagem(entry: dict) -> None:
             SESS[wa_to] = {"route":"consulta","stage":"forma","data":{"tipo":"consulta"}}; _ask_forma(wa_to); return
         if "exame" in low:
             SESS[wa_to] = {"route":"exames","stage":"forma","data":{"tipo":"exames"}}; _ask_forma(wa_to); return
+        if "procedimento" in low:
+            SESS[wa_to] = {"route":"procedimentos","stage":"forma","data":{"tipo":"procedimentos"}}; _ask_forma(wa_to); return
 
         # Fallback com IA conversacional antes de mostrar o menu
         resposta_ia = None
@@ -1330,6 +1410,9 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     if route == "exames" and data.get("forma") and data.get("exame") and not data.get("_pac_decidido"):
         data["_pac_decidido"] = True; ses["stage"] = "paciente_escolha"; SESS[wa_to] = ses
         _send_buttons(wa_to, "O atendimento é para você mesmo(a) ou para outro paciente (filho/dependente)?", BTN_PACIENTE); return
+    if route == "procedimentos" and data.get("forma") and data.get("procedimento") and not data.get("_pac_decidido"):
+        data["_pac_decidido"] = True; ses["stage"] = "paciente_escolha"; SESS[wa_to] = ses
+        _send_buttons(wa_to, "O atendimento é para você mesmo(a) ou para outro paciente (filho/dependente)?", BTN_PACIENTE); return
 
     fields = _fields_for(route, data) or []
     pend   = [(k, q) for (k, q) in fields if not data.get(k)]
@@ -1344,14 +1427,14 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     # NÃO mover este bloco para depois do confirmar.
     # Quando já temos CEP+Número e a decisão sobre complemento (complemento presente,
     # mesmo que vazio), perguntamos a ORIGEM uma única vez, antes de montar o resumo.
-    if route in {"consulta","exames"} and not data.get("_origem_done"):
+    if route in {"consulta","exames","procedimentos"} and not data.get("_origem_done"):
         if data.get("cep") and data.get("numero"):
             ses["stage"] = "origem_menu"; SESS[wa_to] = ses
             _send_text(wa_to, _origem_menu_texto()); return
 
     # Quando todos os campos obrigatórios estão ok e marketing já foi coletado,
     # montamos a caixa de confirmação.
-    if not pend and route in {"consulta","exames"} and not data.get("_confirmado"):
+    if not pend and route in {"consulta","exames","procedimentos"} and not data.get("_confirmado"):
         # Se ainda não perguntamos marketing por algum motivo, faz agora.
         if not data.get("_origem_done"):
             ses["stage"] = "origem_menu"; SESS[wa_to] = ses
@@ -1364,8 +1447,9 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         ]
         if data.get("_pac_outro"):
             resumo += [f"Paciente: {data.get('paciente_nome','')}  Nasc: {data.get('paciente_nasc','')}  Doc: {data.get('paciente_documento','') or '-'}"]
-        if route=="consulta": resumo.append(f"Especialidade: {data.get('especialidade','')}")
-        if route=="exames":   resumo.append(f"Exame: {data.get('exame','')}")
+        if route=="consulta":      resumo.append(f"Especialidade: {data.get('especialidade','')}")
+        if route=="exames":        resumo.append(f"Exame: {data.get('exame','')}")
+        if route=="procedimentos": resumo.append(f"Procedimento: {data.get('procedimento','')}")
         # Origem/Marketing no resumo
         if data.get("panfleto_codigo"):
             resumo.append(f"Origem: Panfleto ({data.get('panfleto_codigo')})")
@@ -1379,8 +1463,9 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
         next_key, question = pend[0]
         ses["stage"] = next_key; SESS[wa_to] = ses
         if next_key == "forma": _ask_forma(wa_to); return
-        if route == "consulta" and next_key == "especialidade": _ask_especialidade_num(wa_to, ses); return
-        if route == "exames"   and next_key == "exame":          _ask_exame_num(wa_to, ses); return
+        if route == "consulta"      and next_key == "especialidade": _ask_especialidade_num(wa_to, ses); return
+        if route == "exames"       and next_key == "exame":          _ask_exame_num(wa_to, ses); return
+        if route == "procedimentos" and next_key == "procedimento":  _ask_procedimento_num(wa_to, ses); return
         _send_text(wa_to, question); return
 
     if route in {"retorno","resultado"}:
@@ -1432,6 +1517,7 @@ def _continue_form(ss, wa_to, ses, user_text):
     # Reabrir UI correta se aguardando
     if (route == "consulta" and stage == "especialidade"): _ask_especialidade_num(wa_to, ses); return
     if (route == "exames" and stage == "exame_num"):       _ask_exame_num(wa_to, ses); return
+    if (route == "procedimentos" and stage == "procedimento"): _ask_procedimento_num(wa_to, ses); return
 
     # Campo atual
     if stage:
@@ -1448,6 +1534,8 @@ def _continue_form(ss, wa_to, ses, user_text):
                     _ask_especialidade_num(wa_to, ses); return
                 if route == "exames" and stage == "convenio":
                     _ask_exame_num(wa_to, ses); return
+                if route == "procedimentos" and stage == "convenio":
+                    _ask_procedimento_num(wa_to, ses); return
                 if stage == "cep" and route in {"consulta","exames","editar_endereco"}:
                     ses["stage"] = "numero"; SESS[wa_to] = ses; _send_text(wa_to, "Informe o número:"); return
 
@@ -1529,8 +1617,8 @@ def _continue_form(ss, wa_to, ses, user_text):
         m = re.match(r"^\s*(\d{1,2})\s*$", txt)
         if m:
             idx = int(m.group(1))
-            if 1 <= idx <= len(ESPECIALIDADES_ORDER):
-                ses["data"]["especialidade"] = ESPECIALIDADES_ORDER[idx-1]
+            if 1 <= idx <= len(CONSULTAS_ORDER):
+                ses["data"]["especialidade"] = CONSULTAS_ORDER[idx-1]
                 ses["stage"] = None; SESS[wa_to] = ses
                 _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
             _send_text(wa_to, f"O número {idx} não está na lista. Tente novamente.")
@@ -1550,6 +1638,35 @@ def _continue_form(ss, wa_to, ses, user_text):
         else:
             _send_text(wa_to, "Não entendi. Digite apenas o número da especialidade.")
             _send_text(wa_to, _especialidade_menu_texto())
+        return
+
+    # Procedimento por número
+    if route == "procedimentos" and stage == "procedimento_num":
+        txt = (user_text or "").strip()
+        m = re.match(r"^\s*(\d{1,2})\s*$", txt)
+        if m:
+            idx = int(m.group(1))
+            if 1 <= idx <= len(PROCEDIMENTOS_ORDER):
+                ses["data"]["procedimento"] = PROCEDIMENTOS_ORDER[idx-1]
+                ses["stage"] = None; SESS[wa_to] = ses
+                _finaliza_ou_pergunta_proximo(ss, wa_to, ses); return
+            _send_text(wa_to, f"O número {idx} não está na lista. Tente novamente.")
+            _send_text(wa_to, _procedimento_menu_texto()); return
+        # Texto livre no lugar de número: tenta IA antes de pedir o número de novo
+        resposta_ia = None
+        try:
+            from responder_ia import responder_com_ia
+            nome_ses = data.get("whatsapp_nome") or None
+            hist = _get_hist_ia(wa_to)
+            resposta_ia = responder_com_ia(txt, nome_ses, historico=hist)
+        except Exception:
+            pass
+        if resposta_ia:
+            _add_hist_ia(wa_to, txt, resposta_ia)
+            _send_text(wa_to, resposta_ia)
+        else:
+            _send_text(wa_to, "Não entendi. Digite apenas o número do procedimento.")
+            _send_text(wa_to, _procedimento_menu_texto())
         return
 
     # Pesquisa (se usar)
