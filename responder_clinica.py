@@ -1524,6 +1524,18 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     except Exception as e:
         print("[FINALIZAÇÃO] erro ao enviar mensagem final:", e)
 
+    # ===== Limpeza pós-CONFIRMAR (SÓ deste telefone) ==========================
+    # Chegou até aqui só quando data["_confirmado"]=True (setado no clique do
+    # botão "confirmar", acima) — ou seja, SOMENTE depois que a gravação real
+    # (_add_solicitacao, logo acima) e a mensagem final já saíram. Remove
+    # exclusivamente a atribuição de marketing deste wa_to
+    # (_LEAD_MARKETING_INICIAL), pra que um NOVO atendimento do mesmo número —
+    # com marcador novo ou sem marcador nenhum — comece do zero, sem herdar
+    # origem/interesse do atendimento que acabou de ser confirmado. NÃO limpar
+    # aqui faria a origem ficar presa até o processo reiniciar (ver histórico).
+    # Não afeta nenhum outro telefone; não é limpeza global.
+    _LEAD_MARKETING_INICIAL.pop(wa_to, None)
+
     # Reset sessão
     SESS[wa_to] = {"route":"root", "stage":"", "data":{}}
 
