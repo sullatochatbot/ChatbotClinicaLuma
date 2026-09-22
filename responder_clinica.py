@@ -1434,28 +1434,29 @@ def _finaliza_ou_pergunta_proximo(ss, wa_to, ses):
     fields = _fields_for(route, data) or []
     pend   = [(k, q) for (k, q) in fields if not data.get(k)]
 
-    # ===== MARKETING ANTES DO CONFIRMAR =====================================
-    # IMPORTANTE:
-    # A coleta da origem (Instagram, Google, Panfleto, etc.)
-    # ocorre ANTES da confirmação final.
-    # Isso garante que:
-    # 1) Sempre teremos P/Q/R preenchidos antes do salvamento
-    # 2) O resumo final já mostre a origem
-    # NÃO mover este bloco para depois do confirmar.
-    # Quando já temos CEP+Número e a decisão sobre complemento (complemento presente,
-    # mesmo que vazio), perguntamos a ORIGEM uma única vez, antes de montar o resumo.
-    if route in {"consulta","exames","procedimentos"} and not data.get("_origem_done"):
-        if data.get("cep") and data.get("numero"):
-            ses["stage"] = "origem_menu"; SESS[wa_to] = ses
-            _send_text(wa_to, _origem_menu_texto()); return
+    # ===== PERGUNTA "ONDE NOS CONHECEU?" DESATIVADA (2026-09-22) =============
+    # Ficou redundante desde que a origem passou a ser capturada automática
+    # e corretamente pelos 4 links oficiais ([INSTAGRAM]/[GOOGLE]/[FACEBOOK]/
+    # [SITE], já validados em produção) — origem_anuncio/interesse_anuncio/
+    # _LEAD_MARKETING_INICIAL continuam funcionando exatamente como antes,
+    # nada aqui toca nisso. origem_cliente/panfleto_codigo (colunas P/Q do
+    # Sheets) são preservados por compatibilidade, só deixam de ser
+    # preenchidos por esta pergunta — nenhuma coluna foi removida.
+    # Pra reativar no futuro, basta remover os comentários dos dois blocos
+    # abaixo (o handler de "origem_menu"/"origem_outros_texto"/
+    # "origem_panfleto_codigo" continua intacto mais abaixo no arquivo).
+    #
+    # if route in {"consulta","exames","procedimentos"} and not data.get("_origem_done"):
+    #     if data.get("cep") and data.get("numero"):
+    #         ses["stage"] = "origem_menu"; SESS[wa_to] = ses
+    #         _send_text(wa_to, _origem_menu_texto()); return
 
-    # Quando todos os campos obrigatórios estão ok e marketing já foi coletado,
-    # montamos a caixa de confirmação.
+    # Quando todos os campos obrigatórios estão ok, montamos direto a caixa
+    # de confirmação (a etapa de "onde nos conheceu" foi removida daqui).
     if not pend and route in {"consulta","exames","procedimentos"} and not data.get("_confirmado"):
-        # Se ainda não perguntamos marketing por algum motivo, faz agora.
-        if not data.get("_origem_done"):
-            ses["stage"] = "origem_menu"; SESS[wa_to] = ses
-            _send_text(wa_to, _origem_menu_texto()); return
+        # if not data.get("_origem_done"):
+        #     ses["stage"] = "origem_menu"; SESS[wa_to] = ses
+        #     _send_text(wa_to, _origem_menu_texto()); return
 
         resumo = [
             f"Responsável: {data.get('nome','')}",
